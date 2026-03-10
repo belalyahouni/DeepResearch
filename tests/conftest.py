@@ -64,7 +64,7 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport,
-        base_url="http://test",
+        base_url="http://localhost",
         headers={"X-API-Key": "test-api-key"},
     ) as ac:
         yield ac

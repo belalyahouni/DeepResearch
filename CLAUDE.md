@@ -56,6 +56,7 @@ pytest tests/ -v
 ```
 GEMINI_API_KEY=
 OPEN_ALEX_API_KEY=
+API_KEY=
 ```
 
 ## Coding Conventions
@@ -66,7 +67,8 @@ OPEN_ALEX_API_KEY=
 - **Type hints** on all functions
 - **Pydantic schemas** for all request/response validation
 - **Wrap Gemini/external calls** in try/except — graceful fallback on failure
-- **Proper HTTP status codes** — 200, 201, 204, 404, 409, 422, 500
+- **Proper HTTP status codes** — 200, 201, 204, 401, 404, 409, 422, 500
+- **API key auth** on all endpoints except `/health` and `/docs` — via `X-API-Key` header, `app/auth.py`
 - **Never commit** `.env` or `deepresearch.db`
 
 ## Testing
@@ -74,11 +76,11 @@ OPEN_ALEX_API_KEY=
 - Run `pytest tests/ -v` after every change — 0 failures allowed
 - Tests use in-memory SQLite and mock all external APIs (Gemini, OpenAlex)
 - Cover: happy path, invalid input (422), not found (404), external failure (500), graceful fallback
-- 42 tests across 6 test files
+- 45 tests across 7 test files (includes `test_auth.py`)
 
 ## Quality Bar — Targeting 90-100
 
-- All endpoints working end-to-end with proper error handling
+- All endpoints working end-to-end with proper error handling and authentication
 - Swagger UI with descriptions on all endpoints — export to PDF for submission
 - Descriptive commits with visible incremental history
 - README.md with setup instructions (**required**)
@@ -86,7 +88,7 @@ OPEN_ALEX_API_KEY=
 
 ## Submission TODO
 
-All core API functionality is complete (42 tests passing). Remaining work is polish, documentation, and presentation.
+All core API functionality is complete (45 tests passing). Remaining work is polish, documentation, and presentation.
 
 ### Code & API (do first)
 - [ ] **README.md** — project overview, setup instructions, endpoint summary, how to run tests. Pass/fail gate.
@@ -107,6 +109,14 @@ All core API functionality is complete (42 tests passing). Remaining work is pol
 - [ ] Code runs locally (`uvicorn app.main:app --reload`)
 - [ ] All tests pass (`pytest tests/ -v`)
 
+## Security
+
+- **API key auth** — `app/auth.py`, `X-API-Key` header, timing-safe comparison via `secrets.compare_digest`
+- **CORS middleware** — restricts origins to `localhost:8000`, whitelists only used methods and headers
+- **Trusted host middleware** — rejects requests with forged `Host` headers
+- **`/health` excluded** from auth (standard practice for monitoring)
+- See `AUTHENTICATION.md` for full details
+
 ### What NOT to Build
-- Auth, rate limiting, Docker, deployment
+- Rate limiting, Docker, deployment
 - Citation graph, recommendations, user accounts
