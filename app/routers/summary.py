@@ -4,12 +4,13 @@ Accepts any text (abstract for preview, or full paper text for detailed summary)
 No database interaction — callers decide what to do with the result.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.agents.summariser import summarise_text
+from app.auth import get_api_key
 from app.schemas.summary import SummariseRequest, SummariseResponse
 
-router = APIRouter(tags=["Summarisation"])
+router = APIRouter(tags=["Summarisation"], dependencies=[Depends(get_api_key)])
 
 
 @router.post("/summarise", response_model=SummariseResponse)

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_api_key
 from app.database import get_db
 from app.models.paper import Paper
 from app.schemas.paper import PaperCreate, PaperResponse, PaperUpdate
@@ -11,7 +12,7 @@ from app.routers.summary import summarise
 from app.schemas.summary import SummariseRequest
 from app.services.pdf_parser import extract_text_from_pdf
 
-router = APIRouter(prefix="/papers", tags=["Papers"])
+router = APIRouter(prefix="/papers", tags=["Papers"], dependencies=[Depends(get_api_key)])
 
 
 @router.post("", response_model=PaperResponse, status_code=201)

@@ -1,11 +1,15 @@
 """Shared test fixtures — in-memory DB and async test client."""
 
+import os
 from collections.abc import AsyncGenerator
 from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+# Set test API key before importing app (so auth dependency picks it up)
+os.environ["API_KEY"] = "test-api-key"
 
 from app.database import Base, get_db
 from app.main import app
@@ -58,5 +62,9 @@ def _mock_chat_agent():
 @pytest.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"X-API-Key": "test-api-key"},
+    ) as ac:
         yield ac

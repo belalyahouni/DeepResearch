@@ -5,6 +5,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.chat import MAX_MESSAGES, chat
+from app.auth import get_api_key
 from app.database import get_db
 from app.models.conversation import Conversation
 from app.models.paper import Paper
@@ -14,7 +15,7 @@ from app.schemas.conversation import (
     ConversationResponse,
 )
 
-router = APIRouter(prefix="/papers/{paper_id}/chat", tags=["Chat"])
+router = APIRouter(prefix="/papers/{paper_id}/chat", tags=["Chat"], dependencies=[Depends(get_api_key)])
 
 
 async def _get_paper_or_404(paper_id: int, db: AsyncSession) -> Paper:

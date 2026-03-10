@@ -2,12 +2,13 @@
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.agents.classifier_optimiser import classify_and_optimise
+from app.auth import get_api_key
 from app.services.openalex import search_papers
 
-router = APIRouter(tags=["Search"])
+router = APIRouter(tags=["Search"], dependencies=[Depends(get_api_key)])
 
 
 @router.get("/search")
