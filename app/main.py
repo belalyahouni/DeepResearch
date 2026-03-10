@@ -1,10 +1,18 @@
+from dotenv import load_dotenv
 from fastapi import FastAPI
+
+load_dotenv()
+
+from app.routers import papers, search
 
 app = FastAPI(
     title="DeepResearch API",
     description="An agentic research assistant API for discovering, saving, and interacting with academic papers.",
     version="0.1.0",
 )
+
+app.include_router(papers.router)
+app.include_router(search.router)
 
 
 @app.get("/health", tags=["Utility"])

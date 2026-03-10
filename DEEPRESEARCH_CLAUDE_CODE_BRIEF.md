@@ -2,7 +2,7 @@
 
 ## Overview
 
-You are helping build **DeepResearch API**, an agentic research assistant API that allows users to discover, save, and interact with academic research papers. This is a university coursework project (FastAPI + SQLite + Gemini + Semantic Scholar).
+You are helping build **DeepResearch API**, an agentic research assistant API that allows users to discover, save, and interact with academic research papers. This is a university coursework project (FastAPI + SQLite + Gemini + OpenAlex).
 
 The approach is **MVP first, then iterate**. Follow the build order in this document strictly. Do not jump ahead to later phases until the current phase is working and tested.
 
@@ -16,12 +16,20 @@ The approach is **MVP first, then iterate**. Follow the build order in this docu
 | Framework | FastAPI | Auto-generates Swagger UI at `/docs` |
 | Database | SQLite | Via SQLAlchemy ORM, file-based, zero setup |
 | Migrations | Alembic | For DB schema versioning |
-| LLM | Google Gemini 1.5 Flash | Via `google-generativeai` SDK |
-| Paper Retrieval | Semantic Scholar API | Free key, semantic search built in |
+| LLM | Google Gemini (`google-genai` SDK) | See model table below |
+| Paper Retrieval | OpenAlex API | Free key, semantic search built in |
 | PDF Parsing | PyMuPDF (`fitz`) | For extracting full text from open access PDFs |
 | HTTP Client | `httpx` | Async HTTP requests |
 | Environment | `python-dotenv` | For `.env` file loading |
 | OS | macOS | Developer is on macOS |
+
+### LLM Model Strategy
+
+| Agent | Model | Rationale |
+|---|---|---|
+| Query Intelligence (classify + optimise) | `gemini-2.5-flash-lite` | Simple structured task, needs to be fast, runs on every search |
+| Summariser | `gemini-2.5-pro` | Complex task — reading full PDF, producing structured output, quality matters |
+| Chat | `gemini-2.5-flash` | Balanced — conversational but needs to reason about paper content |
 
 ---
 
@@ -56,7 +64,7 @@ deepresearch-api/
 │   │   └── chat.py           # Conversational chat agent
 │   └── services/
 │       ├── __init__.py
-│       ├── semantic_scholar.py # Semantic Scholar API client
+│       ├── openalex.py # OpenAlex API client
 │       └── pdf_parser.py     # PDF text extraction
 ├── alembic/                  # DB migrations
 ├── .env                      # API keys (never commit this)
@@ -74,13 +82,13 @@ deepresearch-api/
 `.env` file (provide this to examiner):
 ```
 GEMINI_API_KEY=your_gemini_api_key_here
-SEMANTIC_SCHOLAR_API_KEY=your_semantic_scholar_api_key_here
+OPEN_ALEX_API_KEY=your_semantic_scholar_api_key_here
 ```
 
 `.env.example` (commit this to GitHub):
 ```
 GEMINI_API_KEY=
-SEMANTIC_SCHOLAR_API_KEY=
+OPEN_ALEX_API_KEY=
 ```
 
 ---
@@ -92,7 +100,7 @@ Stores papers the user has explicitly saved to their library.
 
 ```
 id: int (primary key)
-semantic_scholar_id: str (unique, from Semantic Scholar)
+openalex_id: str (unique, from OpenAlex)
 title: str
 authors: str (comma-separated)
 abstract: str (nullable)
@@ -191,24 +199,24 @@ created_at: datetime
 4. Test all endpoints via Swagger UI at `http://localhost:8000/docs`
 5. Verify Create, Read, Update, Delete all work correctly
 
-### Phase 4 — Semantic Scholar Integration
-1. Build `app/services/semantic_scholar.py` client
+### Phase 4 — OpenAlex Integration
+1. Build `app/services/openalex.py` client
 2. Key method: `search_papers(query: str, limit: int, fields_of_study: list) -> list`
-3. Returns: title, authors, abstract, year, url, open_access_pdf_url, citation_count, semantic_scholar_id
+3. Returns: title, authors, abstract, year, url, open_access_pdf_url, citation_count, openalex_id
 4. Test the client in isolation first (simple script or test)
-5. Build basic `/search` endpoint that calls Semantic Scholar directly (no agents yet)
+5. Build basic `/search` endpoint that calls OpenAlex directly (no agents yet)
 6. Verify search returns real papers
 
 ### Phase 5 — Classifier Agent (First Agent)
-1. Build `app/agents/classifier.py` using Gemini 1.5 Flash
+1. Build `app/agents/classifier.py` using Gemini 2.5 Flash
 2. Input: raw user query string
 3. Output: topic category string (e.g. "machine learning", "computer vision", "NLP")
-4. Use this category to filter Semantic Scholar search by field of study
+4. Use this category to filter OpenAlex search by field of study
 5. Wire into `/search` endpoint: query → classify → search
 6. Test end-to-end
 
 ### Phase 6 — Prompt Optimiser Agent (Second Agent)
-1. Build `app/agents/prompt_optimizer.py` using Gemini 1.5 Flash
+1. Build `app/agents/prompt_optimizer.py` using Gemini 2.5 Flash
 2. Input: raw user query string + topic category
 3. Output: refined academic search query string
 4. Wire into `/search` endpoint: query → classify → optimise → search
@@ -223,20 +231,20 @@ created_at: datetime
 
 ### Phase 8 — PDF Parser
 1. Build `app/services/pdf_parser.py` using PyMuPDF
-2. Input: PDF URL (open access URL from Semantic Scholar)
+2. Input: PDF URL (open access URL from OpenAlex)
 3. Output: extracted text string (first N pages or full)
 4. Handle cases where PDF is unavailable gracefully (fall back to abstract)
 5. Test with a real open access paper URL
 
 ### Phase 9 — Summarisation Agent (Third Agent)
-1. Build `app/agents/summariser.py` using Gemini 1.5 Flash
+1. Build `app/agents/summariser.py` using Gemini 2.5 Flash
 2. Input: paper text (full PDF text if available, abstract as fallback)
 3. Output: structured summary (key findings, methodology, contributions, limitations)
 4. Build `POST /papers/{id}/summary` endpoint
 5. Test on a saved paper that has an open access PDF
 
 ### Phase 10 — Chat Agent (Fourth Agent)
-1. Build `app/agents/chat.py` using Gemini 1.5 Flash
+1. Build `app/agents/chat.py` using Gemini 2.5 Flash
 2. Maintains conversation context by loading full history from DB on each call
 3. Input: paper context (full PDF text or abstract) + conversation history + new user message
 4. Output: assistant response string
@@ -248,35 +256,22 @@ created_at: datetime
 
 ## Agent Specifications
 
-### Classifier Agent
+### Query Intelligence Agent (classify + optimise) — `gemini-2.5-flash-lite`
 ```
 System prompt:
-"You are an academic topic classifier. Given a user's research query, 
-identify the primary academic field or subfield. Return only the topic 
-category as a short string (2-4 words maximum). Examples: 'machine learning', 
-'computer vision', 'natural language processing', 'quantum computing', 
-'climate science'."
+"You are an academic search assistant. Given a user's research query, you must:
+1. Classify it into exactly one OpenAlex field (from 26 fields).
+2. Optimise the query for semantic search — rewrite using precise academic
+   terminology. Keep descriptive and natural, not a keyword list."
 
 Input: raw query string
-Output: topic category string (plain text, no JSON)
+Output: JSON {"field_id": <int>, "field": "<name>", "optimised_query": "<rewritten>"}
 ```
 
-### Prompt Optimiser Agent
+### Summariser Agent — `gemini-2.5-pro`
 ```
 System prompt:
-"You are an academic search query optimizer. Given a user's casual research 
-question and its topic category, rewrite it as an optimized academic search 
-query that will return the most relevant research papers. Use precise academic 
-terminology. Return only the optimized query string, nothing else."
-
-Input: {"query": "...", "topic": "..."}
-Output: optimized query string (plain text, no JSON)
-```
-
-### Summariser Agent
-```
-System prompt:
-"You are an expert academic paper summariser. Given the text of a research 
+"You are an expert academic paper summariser. Given the text of a research
 paper, produce a structured summary with these sections:
 - Key Findings (2-3 sentences)
 - Methodology (1-2 sentences)
@@ -288,12 +283,12 @@ Input: paper text (PDF or abstract)
 Output: structured markdown summary
 ```
 
-### Chat Agent
+### Chat Agent — `gemini-2.5-flash`
 ```
 System prompt:
-"You are a research assistant helping a user understand a specific academic 
-paper. You have access to the full paper text. Answer questions accurately, 
-cite specific sections when relevant, and acknowledge when something is not 
+"You are a research assistant helping a user understand a specific academic
+paper. You have access to the full paper text. Answer questions accurately,
+cite specific sections when relevant, and acknowledge when something is not
 covered in the paper. Be concise but thorough."
 
 Input: paper context + conversation history + new message
@@ -308,7 +303,7 @@ Output: assistant response
 - **Never commit** `.env` or `deepresearch.db` to GitHub — add both to `.gitignore`
 - **Error handling**: all endpoints must return appropriate HTTP status codes (404 for not found, 422 for validation errors, 500 for server errors)
 - **Gemini calls**: wrap in try/except, return meaningful error messages
-- **Semantic Scholar calls**: respect rate limits, use the API key from `.env`
+- **OpenAlex calls**: respect rate limits, use the API key from `.env`
 - **PDF parsing**: always have an abstract fallback if PDF is unavailable or parsing fails
 - **Conversation context**: for the chat agent, load ALL previous messages for the paper and pass them to Gemini as conversation history
 - **SQLite**: the `deepresearch.db` file is auto-created on first run — no manual setup needed
@@ -352,7 +347,7 @@ pydantic
 pydantic-settings
 python-dotenv
 httpx
-google-generativeai
+google-genai
 pymupdf
 ```
 

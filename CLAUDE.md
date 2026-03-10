@@ -1,7 +1,7 @@
 # CLAUDE.md — DeepResearch API
 
 Agentic research assistant API — discover, save, and chat with academic papers.
-FastAPI + SQLite + Gemini + Semantic Scholar. University coursework (COMP3011, Leeds).
+FastAPI + SQLite + Gemini + OpenAlex. University coursework (COMP3011, Leeds).
 
 ## Tech Stack
 
@@ -11,8 +11,16 @@ FastAPI + SQLite + Gemini + Semantic Scholar. University coursework (COMP3011, L
 | Framework | FastAPI | Swagger UI at `/docs` |
 | Database | SQLite | SQLAlchemy ORM, file `deepresearch.db` |
 | Migrations | Alembic | DB schema versioning |
-| LLM | Google Gemini 1.5 Flash | `google-generativeai` SDK |
-| Papers | Semantic Scholar API | Free key, semantic search |
+| LLM | Google Gemini (`google-genai` SDK) | See model table below |
+
+## LLM Model Strategy
+
+| Agent | Model | Rationale |
+|---|---|---|
+| Query Intelligence (classify + optimise) | `gemini-2.5-flash-lite` | Simple structured task, needs to be fast, runs on every search |
+| Summariser | `gemini-2.5-pro` | Complex task — reading full PDF, producing structured output, quality matters |
+| Chat | `gemini-2.5-flash` | Balanced — conversational but needs to reason about paper content |
+| Papers | OpenAlex API | Free key, semantic search (beta) |
 | PDF Parsing | PyMuPDF (`fitz`) | Full text extraction |
 | HTTP Client | `httpx` | Async requests |
 | Environment | `python-dotenv` | `.env` file loading |
@@ -27,19 +35,18 @@ app/
 ├── schemas/              # Pydantic schemas
 ├── routers/              # Endpoint routers (papers, search, conversation)
 ├── agents/               # LLM agents (classifier, prompt_optimizer, summariser, chat)
-└── services/             # External services (semantic_scholar, pdf_parser)
+└── services/             # External services (openalex, pdf_parser)
 ```
 
 ## Build Phases & Status
 
 Follow strictly in order. Do not skip ahead.
 
-- [ ] **Phase 1** — Project Skeleton (directory structure, venv, `.env`, health endpoint)
-- [ ] **Phase 2** — Database (SQLAlchemy engine, 3 models, Alembic migration)
-- [ ] **Phase 3** — Papers CRUD (Pydantic schemas, 5 endpoints, register router)
-- [ ] **Phase 4** — Semantic Scholar Integration (API client, basic `/search` endpoint)
-- [ ] **Phase 5** — Classifier Agent (Gemini topic classification, wire into search)
-- [ ] **Phase 6** — Prompt Optimiser Agent (query refinement, SearchSession storage)
+- [x] **Phase 1** — Project Skeleton (directory structure, venv, `.env`, health endpoint)
+- [x] **Phase 2** — Database (SQLAlchemy engine, 3 models, Alembic migration)
+- [x] **Phase 3** — Papers CRUD (Pydantic schemas, 5 endpoints, register router)
+- [x] **Phase 4** — OpenAlex Integration (API client, semantic search, `/search` endpoint)
+- [x] **Phase 5+6** — Classifier + Optimiser Agent (combined Gemini agent: field classification + query optimisation, wired into search pipeline)
 - [ ] **Phase 7** — Search Sessions (session schemas, GET endpoints for past sessions)
 - [ ] **Phase 8** — PDF Parser (PyMuPDF extraction, graceful fallback to abstract)
 - [ ] **Phase 9** — Summarisation Agent (structured summary, `POST /papers/{id}/summary`)
@@ -58,7 +65,7 @@ uvicorn app.main:app --reload
 
 ```
 GEMINI_API_KEY=
-SEMANTIC_SCHOLAR_API_KEY=
+OPEN_ALEX_API_KEY=
 ```
 
 ## Coding Conventions
@@ -81,6 +88,7 @@ SEMANTIC_SCHOLAR_API_KEY=
 3. Confirm what was built and what to test before moving on
 4. Ask before making architectural decisions not in the brief
 5. See `DEEPRESEARCH_CLAUDE_CODE_BRIEF.md` for full specs (models, endpoints, agent prompts)
+6. **Validate after every implementation** — after building any feature, run the server and test ALL existing endpoints end-to-end (not just the new ones). Confirm correct responses, error handling, and that nothing is broken before moving on.
 
 ## Quality Bar — Targeting 90-100 (Outstanding)
 
@@ -125,7 +133,7 @@ The code-related marks break down as:
 
 **Creativity & Innovation (6/75)**
 - Novel agentic pipeline (4 LLM agents working together)
-- Integration of contemporary technologies (Gemini, Semantic Scholar, PyMuPDF)
+- Integration of contemporary technologies (Gemini, OpenAlex, PyMuPDF)
 - Originality in how agents compose (classify → optimise → search → summarise → chat)
 
 ## What NOT to Build

@@ -1,10 +1,12 @@
 fastapi
 uvicorn[standard]
 sqlalchemy
+aiosqlite
+greenlet
 alembic
 pydantic
 pydantic-settings
 python-dotenv
 httpx
-google-generativeai
+google-genai
 pymupdf

@@ -1,0 +1,26 @@
+the llms to use
+    groq vs gemini
+        Query Intelligence (classify + optimise)
+            gemini-2.5-flash-lite 
+            Simple structured task, needs to be fast, runs on every search
+        Summariser
+            gemini-2.5-proComplex task 
+            — reading a full PDF and producing structured output, quality matters
+        Chat
+            gemini-2.5-flash
+            Balanced — conversational but needs to reason about paper content
+
+the agentic workflow
+
+what to store in the db
+
+what paper api to use
+    semantic scholar (best but not readily avalibale)
+    elicit (does too much for me, but maybe we can only use some endpoints?)
+    openalex (keyword but with metadata) (but only links) (no free api)
+    arvix (full pdf text only)
+
+    arxiv + keyword * own semantic search
+    openalex (own semantic search) + pdf retriever.
+        openalex w beta semantic search chosen.
+    
