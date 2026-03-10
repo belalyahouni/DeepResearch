@@ -107,96 +107,71 @@ async def search_papers(
     return [_clean_paper(r) for r in results]
 
 
+async def _generate_related_query(title: str, abstract: str | None) -> str | None:
+    """Use Gemini to extract key concepts from a paper and build a semantic
+    search query for finding related works.
+
+    Returns an optimised query string, or None if Gemini is unavailable.
+    """
+    from google import genai
+
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        return None
+
+    prompt = (
+        "Given this academic paper, extract the 3-5 core research concepts and "
+        "produce a single semantic search query (one natural sentence, no bullet "
+        "points) that would find closely related papers. Focus on methods, "
+        "techniques, and the specific problem being solved — not generic field terms.\n\n"
+        f"Title: {title}\n"
+    )
+    if abstract:
+        prompt += f"Abstract: {abstract[:1500]}\n"
+    prompt += "\nReturn ONLY the search query, nothing else."
+
+    try:
+        client = genai.Client(api_key=gemini_key)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(temperature=0.2),
+        )
+        query = response.text.strip().strip('"')
+        return query if query else None
+    except Exception:
+        return None
+
+
 async def get_related_papers(
     openalex_id: str,
+    title: str,
+    abstract: str | None,
     *,
     per_page: int = 5,
 ) -> list[dict[str, Any]]:
-    """Find papers related to *openalex_id* by fetching its topics from
-    OpenAlex and filtering by the same domain, field, and subfield.
+    """Find papers related to a saved paper using the Gemini agent to build a
+    semantic search query from the paper's title and abstract, then running
+    that query through OpenAlex semantic search.
 
-    The OpenAlex topics hierarchy is: domain → field → subfield → topic.
-    We extract all three levels from the paper's primary topic and combine
-    them into a single filter so results stay within the same narrow area
-    of research.
+    This is an agent-powered feature — Gemini extracts the core research
+    concepts and formulates an optimised query, rather than simply proxying
+    OpenAlex metadata filters.
 
-    Raises ``RuntimeError`` if the API call fails.
+    Falls back to a title-based keyword search if Gemini is unavailable.
+
+    Raises ``RuntimeError`` if the OpenAlex API call fails.
     """
-    api_key = os.getenv("OPEN_ALEX_API_KEY")
+    # Step 1: Use Gemini to generate an intelligent search query
+    query = await _generate_related_query(title, abstract)
 
-    # Step 1: Fetch the source work to get its topics
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            params: dict[str, Any] = {}
-            if api_key:
-                params["api_key"] = api_key
-            resp = await client.get(
-                f"{OPENALEX_BASE_URL}/works/{openalex_id.split('/')[-1]}",
-                params=params,
-            )
-            resp.raise_for_status()
-    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-        raise RuntimeError(f"Failed to fetch work from OpenAlex: {exc}") from exc
+    # Fallback: use the paper title directly
+    if not query:
+        query = title
 
-    work = resp.json()
+    # Step 2: Run semantic search via OpenAlex, excluding the source paper
+    results = await search_papers(query, semantic=True, per_page=per_page + 1)
 
-    # Build topic-hierarchy filter from the primary topic
-    primary_topic = work.get("primary_topic") or {}
-    filter_parts: list[str] = []
-
-    domain = primary_topic.get("domain", {})
-    field = primary_topic.get("field", {})
-    subfield = primary_topic.get("subfield", {})
-
-    # OpenAlex filters require the short numeric ID (e.g. "17"),
-    # not the full URL (e.g. "https://openalex.org/fields/17")
-    domain_id = domain.get("id", "").rsplit("/", 1)[-1] if domain.get("id") else ""
-    field_id = field.get("id", "").rsplit("/", 1)[-1] if field.get("id") else ""
-    subfield_id = subfield.get("id", "").rsplit("/", 1)[-1] if subfield.get("id") else ""
-
-    if domain_id:
-        filter_parts.append(f"primary_topic.domain.id:{domain_id}")
-    if field_id:
-        filter_parts.append(f"primary_topic.field.id:{field_id}")
-    if subfield_id:
-        filter_parts.append(f"primary_topic.subfield.id:{subfield_id}")
-
-    # Fallback: if no primary_topic, try legacy concepts
-    if not filter_parts:
-        concepts = work.get("concepts") or []
-        if concepts:
-            concept_id = concepts[0].get("id", "").rsplit("/", 1)[-1]
-            if concept_id:
-                filter_parts.append(f"concepts.id:{concept_id}")
-
-    if not filter_parts:
-        return []
-
-    # Step 2: Search for related works within the same domain/field/subfield
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            search_params: dict[str, Any] = {
-                "filter": ",".join(filter_parts),
-                "per_page": per_page + 1,  # extra to allow excluding self
-                "select": SELECT_FIELDS,
-                "sort": "cited_by_count:desc",
-            }
-            if api_key:
-                search_params["api_key"] = api_key
-            resp = await client.get(
-                f"{OPENALEX_BASE_URL}/works",
-                params=search_params,
-            )
-            resp.raise_for_status()
-    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-        raise RuntimeError(f"Failed to search related works: {exc}") from exc
-
-    data = resp.json()
-    results: list[dict[str, Any]] = data.get("results", [])
-
-    # Exclude the source paper and limit to per_page
-    cleaned = [
-        _clean_paper(r) for r in results
-        if r.get("id") != openalex_id
-    ]
-    return cleaned[:per_page]
+    # Exclude the source paper
+    filtered = [r for r in results if r.get("openalex_id") != openalex_id]
+    return filtered[:per_page]

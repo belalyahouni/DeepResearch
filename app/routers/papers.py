@@ -181,8 +181,9 @@ async def related_papers(
     paper_id: int,
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
-    """Find papers related to a saved paper by querying OpenAlex using the
-    paper's concepts. Returns up to 5 related works, excluding the original.
+    """Find papers related to a saved paper using the Gemini agent to extract
+    core research concepts and build an optimised semantic search query.
+    Returns up to 5 related works from OpenAlex, excluding the original.
     """
     result = await db.execute(select(Paper).where(Paper.id == paper_id))
     paper = result.scalar_one_or_none()
@@ -190,7 +191,7 @@ async def related_papers(
         raise HTTPException(status_code=404, detail="Paper not found")
 
     try:
-        results = await get_related_papers(paper.openalex_id)
+        results = await get_related_papers(paper.openalex_id, paper.title, paper.abstract)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
