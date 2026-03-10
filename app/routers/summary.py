@@ -13,9 +13,21 @@ from app.schemas.summary import SummariseRequest, SummariseResponse
 router = APIRouter(tags=["Summarisation"], dependencies=[Depends(get_api_key)])
 
 
-@router.post("/summarise", response_model=SummariseResponse)
+@router.post(
+    "/summarise",
+    response_model=SummariseResponse,
+    summary="Summarise academic text",
+    responses={
+        401: {"description": "Missing or invalid API key"},
+        422: {"description": "Validation error — text field is required and must not be empty"},
+        500: {"description": "Gemini summarisation agent failure"},
+    },
+)
 async def summarise(body: SummariseRequest) -> dict:
-    """Summarise any academic text — abstract for quick preview, or full paper for detailed summary."""
+    """Summarise any academic text using the Gemini summariser agent.
+    Pass an abstract for a quick preview, or the full paper text for a
+    comprehensive summary.
+    """
     summary = await summarise_text(body.text)
     if summary is None:
         raise HTTPException(

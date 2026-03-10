@@ -27,13 +27,27 @@ async def _get_paper_or_404(paper_id: int, db: AsyncSession) -> Paper:
     return paper
 
 
-@router.post("", response_model=ChatResponse, status_code=201)
+@router.post(
+    "",
+    response_model=ChatResponse,
+    status_code=201,
+    summary="Send a chat message",
+    responses={
+        401: {"description": "Missing or invalid API key"},
+        404: {"description": "Paper not found"},
+        409: {"description": "Conversation message limit reached"},
+        500: {"description": "Gemini chat agent failure"},
+    },
+)
 async def send_message(
     paper_id: int,
     body: ChatRequest,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Send a message and get an AI response about the paper."""
+    """Send a message about a saved paper and receive an AI response. The chat
+    agent uses the paper's full text (or abstract) as context. Messages are
+    persisted to maintain multi-turn conversation history.
+    """
     paper = await _get_paper_or_404(paper_id, db)
 
     # Check message limit
@@ -85,12 +99,20 @@ async def send_message(
     return {"role": "assistant", "message": response_text}
 
 
-@router.get("", response_model=ConversationResponse)
+@router.get(
+    "",
+    response_model=ConversationResponse,
+    summary="Get conversation history",
+    responses={
+        401: {"description": "Missing or invalid API key"},
+        404: {"description": "Paper not found"},
+    },
+)
 async def get_conversation(
     paper_id: int,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Get the full conversation history for a paper."""
+    """Get the full conversation history for a paper, ordered chronologically."""
     await _get_paper_or_404(paper_id, db)
 
     result = await db.execute(
@@ -102,12 +124,20 @@ async def get_conversation(
     return {"paper_id": paper_id, "messages": messages}
 
 
-@router.delete("", status_code=204)
+@router.delete(
+    "",
+    status_code=204,
+    summary="Clear conversation history",
+    responses={
+        401: {"description": "Missing or invalid API key"},
+        404: {"description": "Paper not found"},
+    },
+)
 async def clear_conversation(
     paper_id: int,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Clear all conversation messages for a paper."""
+    """Clear all conversation messages for a paper, allowing a fresh start."""
     await _get_paper_or_404(paper_id, db)
 
     await db.execute(
