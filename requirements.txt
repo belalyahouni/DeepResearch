@@ -10,3 +10,5 @@ python-dotenv
 httpx
 google-genai
 pymupdf
+pytest
+pytest-asyncio

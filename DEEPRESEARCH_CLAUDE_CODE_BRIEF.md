@@ -4,7 +4,7 @@
 
 You are helping build **DeepResearch API**, an agentic research assistant API that allows users to discover, save, and interact with academic research papers. This is a university coursework project (FastAPI + SQLite + Gemini + OpenAlex).
 
-The approach is **MVP first, then iterate**. Follow the build order in this document strictly. Do not jump ahead to later phases until the current phase is working and tested.
+The approach is **feature-by-feature MVP**. Each feature is built, tested, and validated before moving on.
 
 ---
 
@@ -17,10 +17,11 @@ The approach is **MVP first, then iterate**. Follow the build order in this docu
 | Database | SQLite | Via SQLAlchemy ORM, file-based, zero setup |
 | Migrations | Alembic | For DB schema versioning |
 | LLM | Google Gemini (`google-genai` SDK) | See model table below |
-| Paper Retrieval | OpenAlex API | Free key, semantic search built in |
+| Paper Retrieval | OpenAlex API | Free key, semantic search (beta) |
 | PDF Parsing | PyMuPDF (`fitz`) | For extracting full text from open access PDFs |
 | HTTP Client | `httpx` | Async HTTP requests |
 | Environment | `python-dotenv` | For `.env` file loading |
+| Testing | pytest + pytest-asyncio | In-memory SQLite, mocked external APIs |
 | OS | macOS | Developer is on macOS |
 
 ### LLM Model Strategy
@@ -33,46 +34,46 @@ The approach is **MVP first, then iterate**. Follow the build order in this docu
 
 ---
 
+## User Workflow
+
+1. **Search** — user searches for a topic → query is classified + optimised by Gemini → semantic search via OpenAlex returns top results
+2. **Preview** — user can request a summary of any search result to check relevance before saving
+3. **Save** — user saves interesting papers to their library (summary is stored on the Paper model so it persists)
+4. **Library** — user views all saved papers with summaries, tags, and notes
+5. **Deep dive** — user selects a saved paper → full PDF text loaded → multi-turn chat with LLM about the paper + user can add notes
+
+---
+
 ## Project Structure
 
 ```
-deepresearch-api/
-├── app/
-│   ├── __init__.py
-│   ├── main.py               # FastAPI app entry point
-│   ├── database.py           # SQLAlchemy engine + session
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── paper.py          # Paper model
-│   │   ├── search_session.py # SearchSession model
-│   │   └── conversation.py   # Conversation model
-│   ├── schemas/
-│   │   ├── __init__.py
-│   │   ├── paper.py          # Pydantic schemas for Paper
-│   │   ├── search_session.py # Pydantic schemas for SearchSession
-│   │   └── conversation.py   # Pydantic schemas for Conversation
-│   ├── routers/
-│   │   ├── __init__.py
-│   │   ├── papers.py         # CRUD endpoints for papers
-│   │   ├── search.py         # Search pipeline endpoint
-│   │   └── conversation.py   # Chat endpoints
-│   ├── agents/
-│   │   ├── __init__.py
-│   │   ├── classifier.py     # Topic classification agent
-│   │   ├── prompt_optimizer.py # Query refinement agent
-│   │   ├── summariser.py     # Paper summarisation agent
-│   │   └── chat.py           # Conversational chat agent
-│   └── services/
-│       ├── __init__.py
-│       ├── openalex.py # OpenAlex API client
-│       └── pdf_parser.py     # PDF text extraction
-├── alembic/                  # DB migrations
-├── .env                      # API keys (never commit this)
-├── .env.example              # Template with empty keys
-├── .gitignore
-├── requirements.txt
-├── README.md
-└── deepresearch.db           # SQLite file (auto-created, never commit)
+app/
+├── main.py                          # FastAPI entry point, loads .env, registers routers
+├── database.py                      # SQLAlchemy async engine + session dependency
+├── models/
+│   ├── paper.py                     # Paper model (openalex_id, title, authors, summary, etc.)
+│   └── conversation.py              # Conversation model (paper_id, role, message)
+├── schemas/
+│   └── paper.py                     # PaperCreate, PaperUpdate, PaperResponse
+├── routers/
+│   ├── papers.py                    # CRUD: POST/GET/PUT/DELETE /papers
+│   ├── search.py                    # GET /search — full agent pipeline
+│   └── conversation.py              # Chat endpoints (Phase 9)
+├── agents/
+│   ├── classifier_optimiser.py      # Query Intelligence: field classification + query optimisation
+│   ├── summariser.py                # Paper summarisation (Phase 8)
+│   └── chat.py                      # Conversational chat (Phase 9)
+└── services/
+    ├── openalex.py                  # OpenAlex API client (semantic + keyword search)
+    └── pdf_parser.py                # PDF text extraction (Phase 7)
+tests/
+├── conftest.py                      # Fixtures: in-memory DB, async test client
+├── test_health.py                   # Health endpoint test
+├── test_papers.py                   # 13 tests: full CRUD + edge cases
+├── test_search.py                   # 5 tests: pipeline, validation, errors, fallback
+├── test_pdf_parser.py               # PDF parser tests (Phase 7)
+├── test_summariser.py               # Summariser tests (Phase 8)
+└── test_chat.py                     # Chat tests (Phase 9)
 ```
 
 ---
@@ -82,7 +83,7 @@ deepresearch-api/
 `.env` file (provide this to examiner):
 ```
 GEMINI_API_KEY=your_gemini_api_key_here
-OPEN_ALEX_API_KEY=your_semantic_scholar_api_key_here
+OPEN_ALEX_API_KEY=your_openalex_api_key_here
 ```
 
 `.env.example` (commit this to GitHub):
@@ -110,20 +111,9 @@ open_access_pdf_url: str (nullable)
 citation_count: int (default 0)
 tags: str (nullable, comma-separated user tags)
 notes: str (nullable, user notes)
+summary: str (nullable, AI-generated summary — stored so it's only generated once)
 created_at: datetime
 updated_at: datetime
-```
-
-### SearchSession
-Stores each search the user performs, including how agents transformed the query.
-
-```
-id: int (primary key)
-original_query: str
-topic_category: str (nullable, from classifier agent)
-refined_query: str (nullable, from prompt optimizer agent)
-result_count: int
-created_at: datetime
 ```
 
 ### Conversation
@@ -141,25 +131,41 @@ created_at: datetime
 
 ## API Endpoints
 
-### Papers (CRUD)
+### Papers (CRUD) — IMPLEMENTED
 
 | Method | Endpoint | Operation | Description |
 |---|---|---|---|
-| POST | `/papers` | **Create** | Save a paper to library |
-| GET | `/papers` | **Read** | List all saved papers (supports ?tags= filter) |
+| POST | `/papers` | **Create** | Save a paper to library (409 if duplicate) |
+| GET | `/papers` | **Read** | List all saved papers (supports `?tags=` filter) |
 | GET | `/papers/{id}` | **Read** | Get a specific saved paper |
-| PUT | `/papers/{id}` | **Update** | Update notes or tags on a paper |
+| PUT | `/papers/{id}` | **Update** | Update notes, tags, or summary on a paper |
 | DELETE | `/papers/{id}` | **Delete** | Remove a paper from library |
 
-### Search
+### Search — IMPLEMENTED
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/search` | Run full agent pipeline and return results |
-| GET | `/search/sessions` | List past search sessions |
-| GET | `/search/sessions/{id}` | Get a specific session and its results |
+| GET | `/search?query=...` | Full agent pipeline: classify → optimise → semantic search. Returns agent metadata + results |
 
-### Conversation (per saved paper)
+Search response format:
+```json
+{
+  "original_query": "how do transformers handle long sequences",
+  "field_id": 17,
+  "field": "Computer Science",
+  "optimised_query": "Transformer models for long sequence processing",
+  "result_count": 10,
+  "results": [...]
+}
+```
+
+### Summarisation — Phase 8
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/papers/{id}/summary` | Generate AI summary of a saved paper. Parses PDF (or falls back to abstract), generates structured summary via Gemini, stores result on Paper. Returns cached summary if already generated. |
+
+### Conversation (per saved paper) — Phase 9
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -171,104 +177,179 @@ created_at: datetime
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/papers/{id}/summary` | Generate and return AI summary of a saved paper |
-| GET | `/health` | Health check |
+| GET | `/health` | Health check — IMPLEMENTED |
 
 ---
 
-## Build Order (MVP First — Follow This Strictly)
+## Implementation Status
 
-### Phase 1 — Project Skeleton
-1. Create the project directory structure
-2. Set up `requirements.txt` and virtual environment
-3. Create `.env`, `.env.example`, `.gitignore`
-4. Create `app/main.py` with basic FastAPI app and `/health` endpoint
-5. Verify it runs: `uvicorn app.main:app --reload`
+### Done
+- **Phase 1** — Project skeleton, venv, `.env`, health endpoint
+- **Phase 2** — Database: async SQLAlchemy, 2 models (Paper, Conversation), Alembic migration
+- **Phase 3** — Papers CRUD: 5 endpoints with Pydantic schemas, tag filtering, duplicate detection
+- **Phase 4** — OpenAlex integration: semantic search (AI embeddings) + keyword fallback
+- **Phase 5+6** — Combined Query Intelligence agent: Gemini classifies into OpenAlex field + optimises query for semantic search
+- **Test suite** — 19 tests (pytest), in-memory DB, mocked external APIs
 
-### Phase 2 — Database
-1. Set up `app/database.py` with SQLAlchemy engine pointing to `deepresearch.db`
-2. Create all three models in `app/models/`
-3. Set up Alembic and create initial migration
-4. Run migration to create tables
-5. Verify tables exist in SQLite
+### Remaining
 
-### Phase 3 — Papers CRUD (Core Requirement)
-1. Create Pydantic schemas for Paper in `app/schemas/paper.py`
-2. Build all 5 CRUD endpoints in `app/routers/papers.py`
-3. Register router in `main.py`
-4. Test all endpoints via Swagger UI at `http://localhost:8000/docs`
-5. Verify Create, Read, Update, Delete all work correctly
+- **Phase 7** — PDF Parser
+- **Phase 8** — Summariser Agent + `summary` field on Paper
+- **Phase 9** — Chat Agent + conversation endpoints
 
-### Phase 4 — OpenAlex Integration
-1. Build `app/services/openalex.py` client
-2. Key method: `search_papers(query: str, limit: int, fields_of_study: list) -> list`
-3. Returns: title, authors, abstract, year, url, open_access_pdf_url, citation_count, openalex_id
-4. Test the client in isolation first (simple script or test)
-5. Build basic `/search` endpoint that calls OpenAlex directly (no agents yet)
-6. Verify search returns real papers
+---
 
-### Phase 5 — Classifier Agent (First Agent)
-1. Build `app/agents/classifier.py` using Gemini 2.5 Flash
-2. Input: raw user query string
-3. Output: topic category string (e.g. "machine learning", "computer vision", "NLP")
-4. Use this category to filter OpenAlex search by field of study
-5. Wire into `/search` endpoint: query → classify → search
-6. Test end-to-end
+## Phase 7 — PDF Parser
 
-### Phase 6 — Prompt Optimiser Agent (Second Agent)
-1. Build `app/agents/prompt_optimizer.py` using Gemini 2.5 Flash
-2. Input: raw user query string + topic category
-3. Output: refined academic search query string
-4. Wire into `/search` endpoint: query → classify → optimise → search
-5. Store original_query, topic_category, refined_query in SearchSession
-6. Test end-to-end, compare search results with/without optimisation
+**Goal:** Extract full text from open access PDFs so the summariser and chat agents have real paper content to work with.
 
-### Phase 7 — Search Sessions
-1. Create Pydantic schemas for SearchSession
-2. Build `GET /search/sessions` and `GET /search/sessions/{id}` endpoints
-3. Every `/search` call saves a SearchSession to DB
-4. Test retrieval of past sessions
+### What to build
+- `app/services/pdf_parser.py` — async service that:
+  1. Takes a PDF URL (from `paper.open_access_pdf_url`)
+  2. Downloads the PDF via `httpx` (async, with timeout)
+  3. Extracts full text using PyMuPDF (`fitz`)
+  4. Returns the extracted text as a string
+- Graceful fallback: if the PDF URL is `None`, download fails, or parsing fails → return `None` (callers fall back to abstract)
 
-### Phase 8 — PDF Parser
-1. Build `app/services/pdf_parser.py` using PyMuPDF
-2. Input: PDF URL (open access URL from OpenAlex)
-3. Output: extracted text string (first N pages or full)
-4. Handle cases where PDF is unavailable gracefully (fall back to abstract)
-5. Test with a real open access paper URL
+### Implementation details
+- Use `httpx.AsyncClient` with a reasonable timeout (30s)
+- Write PDF bytes to a temporary file, open with `fitz.open()`, iterate pages, extract text
+- Clean up temp file after extraction
+- Wrap everything in try/except — never let PDF failures crash the API
 
-### Phase 9 — Summarisation Agent (Third Agent)
-1. Build `app/agents/summariser.py` using Gemini 2.5 Flash
-2. Input: paper text (full PDF text if available, abstract as fallback)
-3. Output: structured summary (key findings, methodology, contributions, limitations)
-4. Build `POST /papers/{id}/summary` endpoint
-5. Test on a saved paper that has an open access PDF
+### Tests (`tests/test_pdf_parser.py`)
+- Mock `httpx` responses (don't download real PDFs in tests)
+- Test: successful extraction returns text
+- Test: `None` URL returns `None`
+- Test: download failure (HTTP error) returns `None`
+- Test: corrupt/unparseable PDF returns `None`
 
-### Phase 10 — Chat Agent (Fourth Agent)
-1. Build `app/agents/chat.py` using Gemini 2.5 Flash
-2. Maintains conversation context by loading full history from DB on each call
-3. Input: paper context (full PDF text or abstract) + conversation history + new user message
-4. Output: assistant response string
-5. Create Pydantic schemas for Conversation
-6. Build `POST /papers/{id}/chat`, `GET /papers/{id}/chat`, `DELETE /papers/{id}/chat`
-7. Test multi-turn conversation about a saved paper
+---
+
+## Phase 8 — Summariser Agent
+
+**Goal:** Generate structured AI summaries of saved papers using Gemini, with summaries persisted on the Paper model.
+
+### What to build
+
+#### 1. Add `summary` column to Paper model
+- Add `summary: Mapped[str | None] = mapped_column(String, nullable=True)` to `app/models/paper.py`
+- Create new Alembic migration to add the column
+- Update `PaperResponse` schema to include `summary`
+
+#### 2. Summariser agent (`app/agents/summariser.py`)
+- Uses `gemini-2.5-pro`
+- System prompt:
+  ```
+  You are an expert academic paper summariser. Given the text of a research
+  paper, produce a structured summary with these sections:
+  - Key Findings (2-3 sentences)
+  - Methodology (1-2 sentences)
+  - Main Contributions (bullet points)
+  - Limitations (1-2 sentences)
+  Be concise and precise.
+  ```
+- Input: paper text (full PDF text from Phase 7, or abstract as fallback)
+- Output: structured markdown summary string
+
+#### 3. Endpoint: `POST /papers/{id}/summary`
+- If `paper.summary` already exists → return it immediately (cached)
+- Otherwise:
+  1. Use PDF parser to extract full text from `paper.open_access_pdf_url`
+  2. If PDF extraction fails or URL is `None` → fall back to `paper.abstract`
+  3. If neither available → return 422 with message "No content available to summarise"
+  4. Call summariser agent with the text
+  5. Store the summary on `paper.summary` in the DB
+  6. Return the summary
+- Error handling: if Gemini fails → return 500 with meaningful error
+
+### Tests (`tests/test_summariser.py`)
+- Mock Gemini API responses
+- Mock PDF parser
+- Test: successful summary generation + stored on paper
+- Test: cached summary returned without calling Gemini again
+- Test: fallback to abstract when no PDF
+- Test: 404 when paper not found
+- Test: 422 when no content available (no PDF, no abstract)
+- Test: 500 when Gemini fails
+
+---
+
+## Phase 9 — Chat Agent
+
+**Goal:** Multi-turn conversational chat about a specific saved paper, backed by DB-stored conversation history.
+
+### What to build
+
+#### 1. Chat agent (`app/agents/chat.py`)
+- Uses `gemini-2.5-flash`
+- System prompt:
+  ```
+  You are a research assistant helping a user understand a specific academic
+  paper. You have access to the full paper text. Answer questions accurately,
+  cite specific sections when relevant, and acknowledge when something is not
+  covered in the paper. Be concise but thorough.
+  ```
+- Input: paper context (full PDF text or abstract) + full conversation history from DB + new user message
+- Output: assistant response string
+
+#### 2. Chat router (`app/routers/conversation.py`)
+
+**POST `/papers/{id}/chat`**
+- Request body: `{ "message": "string" }`
+- Flow:
+  1. Verify paper exists (404 if not)
+  2. Load paper text (PDF parser → fallback to abstract)
+  3. Load full conversation history from DB for this paper
+  4. Save the new user message to DB
+  5. Call chat agent with paper text + history + new message
+  6. Save assistant response to DB
+  7. Return `{ "role": "assistant", "message": "..." }`
+- Error handling: if Gemini fails → return 500 (but user message is already saved)
+
+**GET `/papers/{id}/chat`**
+- Returns full conversation history for the paper
+- Response: `{ "paper_id": int, "messages": [{ "role": "...", "message": "...", "created_at": "..." }, ...] }`
+- 404 if paper not found
+
+**DELETE `/papers/{id}/chat`**
+- Clears all conversation messages for the paper
+- Returns 204 No Content
+- 404 if paper not found
+
+#### 3. Register router in `app/main.py`
+
+### Tests (`tests/test_chat.py`)
+- Mock Gemini API responses
+- Mock PDF parser
+- Test: send message and get response
+- Test: conversation history builds up correctly (multi-turn)
+- Test: GET returns full history
+- Test: DELETE clears history
+- Test: 404 when paper not found (POST, GET, DELETE)
+- Test: 500 when Gemini fails (user message still saved)
 
 ---
 
 ## Agent Specifications
 
-### Query Intelligence Agent (classify + optimise) — `gemini-2.5-flash-lite`
+### Query Intelligence Agent (classify + optimise) — `gemini-2.5-flash-lite` — IMPLEMENTED
+
+Runs on every search. Classifies query into one of 26 OpenAlex fields and rewrites it for semantic search.
+
 ```
-System prompt:
-"You are an academic search assistant. Given a user's research query, you must:
-1. Classify it into exactly one OpenAlex field (from 26 fields).
-2. Optimise the query for semantic search — rewrite using precise academic
-   terminology. Keep descriptive and natural, not a keyword list."
+System prompt: See app/agents/classifier_optimiser.py
 
 Input: raw query string
 Output: JSON {"field_id": <int>, "field": "<name>", "optimised_query": "<rewritten>"}
+
+Fallback: if Gemini fails, returns original query with no field filter
 ```
 
-### Summariser Agent — `gemini-2.5-pro`
+Note: OpenAlex semantic search does not support `topics.field.id` filter, so the field is returned in the response metadata but not used for filtering in semantic mode. Field filter is applied only in keyword search mode.
+
+### Summariser Agent — `gemini-2.5-pro` — Phase 8
+
 ```
 System prompt:
 "You are an expert academic paper summariser. Given the text of a research
@@ -279,11 +360,12 @@ paper, produce a structured summary with these sections:
 - Limitations (1-2 sentences)
 Be concise and precise."
 
-Input: paper text (PDF or abstract)
+Input: paper text (full PDF text via PyMuPDF, or abstract as fallback)
 Output: structured markdown summary
 ```
 
-### Chat Agent — `gemini-2.5-flash`
+### Chat Agent — `gemini-2.5-flash` — Phase 9
+
 ```
 System prompt:
 "You are a research assistant helping a user understand a specific academic
@@ -291,22 +373,24 @@ paper. You have access to the full paper text. Answer questions accurately,
 cite specific sections when relevant, and acknowledge when something is not
 covered in the paper. Be concise but thorough."
 
-Input: paper context + conversation history + new message
-Output: assistant response
+Input: paper context + full conversation history from DB + new user message
+Output: assistant response string
 ```
 
 ---
 
 ## Key Implementation Notes
 
-- **Always use async** FastAPI endpoints and async SQLAlchemy where possible
-- **Never commit** `.env` or `deepresearch.db` to GitHub — add both to `.gitignore`
-- **Error handling**: all endpoints must return appropriate HTTP status codes (404 for not found, 422 for validation errors, 500 for server errors)
-- **Gemini calls**: wrap in try/except, return meaningful error messages
-- **OpenAlex calls**: respect rate limits, use the API key from `.env`
-- **PDF parsing**: always have an abstract fallback if PDF is unavailable or parsing fails
-- **Conversation context**: for the chat agent, load ALL previous messages for the paper and pass them to Gemini as conversation history
-- **SQLite**: the `deepresearch.db` file is auto-created on first run — no manual setup needed
+- **Always use async** FastAPI endpoints and async SQLAlchemy
+- **Never commit** `.env` or `deepresearch.db` to GitHub
+- **Error handling**: all endpoints return appropriate HTTP status codes (200, 201, 204, 404, 409, 422, 500)
+- **Gemini calls**: wrap in try/except, graceful fallback on failure
+- **OpenAlex calls**: use API key from `.env`, semantic search requires key
+- **PDF parsing**: always fall back to abstract if PDF unavailable or parsing fails
+- **Summary caching**: store on Paper model, only generate once per paper
+- **Conversation context**: load ALL previous messages for the paper from DB
+- **Search output matches Paper schema**: search results can be directly posted to `POST /papers`
+- **Testing**: run `pytest tests/ -v` after every change, all tests must pass before moving on
 
 ---
 
@@ -315,7 +399,7 @@ Output: assistant response
 ```bash
 # Clone and setup
 git clone <repo>
-cd deepresearch-api
+cd research-agent
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -330,39 +414,25 @@ alembic upgrade head
 # Start the server
 uvicorn app.main:app --reload
 
+# Run tests
+pytest tests/ -v
+
 # Open Swagger UI
 open http://localhost:8000/docs
 ```
 
 ---
 
-## Requirements.txt (starting point)
-
-```
-fastapi
-uvicorn[standard]
-sqlalchemy
-alembic
-pydantic
-pydantic-settings
-python-dotenv
-httpx
-google-genai
-pymupdf
-```
-
----
-
-## What NOT to build yet (post-MVP)
+## What NOT to Build
 
 - Authentication / API key protection for your own API
 - Rate limiting
-- Deployment to PythonAnywhere
 - Frontend / UI
 - Citation graph features
 - Paper recommendations
 - User accounts
 - Docker
+- Deployment (local execution is sufficient for top marks)
 
 ---
 
@@ -381,9 +451,10 @@ pymupdf
 ## Instructions for Claude Code
 
 1. **Read this entire brief before writing any code**
-2. **Follow the build phases in order** — do not implement Phase 5 before Phase 3 is working
+2. **Follow the remaining phases in order** — do not skip ahead
 3. **After each phase**, confirm what was built and what to test before moving on
-4. **Commit after each phase** with a descriptive commit message
-5. **Ask before making architectural decisions** not covered in this brief
-6. **Keep code modular** — one responsibility per file
-7. The developer will continue to converse with you after each phase to guide direction
+4. **Run `pytest tests/ -v` after every implementation** — all tests must pass
+5. **Commit after each phase** with a descriptive commit message
+6. **Ask before making architectural decisions** not covered in this brief
+7. **Keep code modular** — one responsibility per file
+8. The developer will continue to converse with you after each phase to guide direction

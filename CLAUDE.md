@@ -11,7 +11,12 @@ FastAPI + SQLite + Gemini + OpenAlex. University coursework (COMP3011, Leeds).
 | Framework | FastAPI | Swagger UI at `/docs` |
 | Database | SQLite | SQLAlchemy ORM, file `deepresearch.db` |
 | Migrations | Alembic | DB schema versioning |
-| LLM | Google Gemini (`google-genai` SDK) | See model table below |
+| LLM | Google Gemini | `google-genai` SDK, see model table below |
+| Papers | OpenAlex API | Free key, semantic search (beta) |
+| PDF Parsing | PyMuPDF (`fitz`) | Full text extraction |
+| HTTP Client | `httpx` | Async requests |
+| Environment | `python-dotenv` | `.env` file loading |
+| Testing | pytest + pytest-asyncio | In-memory SQLite, mocked external APIs |
 
 ## LLM Model Strategy
 
@@ -20,37 +25,58 @@ FastAPI + SQLite + Gemini + OpenAlex. University coursework (COMP3011, Leeds).
 | Query Intelligence (classify + optimise) | `gemini-2.5-flash-lite` | Simple structured task, needs to be fast, runs on every search |
 | Summariser | `gemini-2.5-pro` | Complex task — reading full PDF, producing structured output, quality matters |
 | Chat | `gemini-2.5-flash` | Balanced — conversational but needs to reason about paper content |
-| Papers | OpenAlex API | Free key, semantic search (beta) |
-| PDF Parsing | PyMuPDF (`fitz`) | Full text extraction |
-| HTTP Client | `httpx` | Async requests |
-| Environment | `python-dotenv` | `.env` file loading |
+
+## User Workflow
+
+1. **Search** — user searches for a topic → query is classified + optimised → semantic search returns top results
+2. **Preview** — user can summarise any search result to check relevance (without saving)
+3. **Save** — user saves interesting papers to their library (summary stored on Paper so it's not re-generated)
+4. **Library** — user views all saved papers with summaries and notes
+5. **Deep dive** — user selects a paper → full PDF text loaded → chat with LLM about it + take notes
 
 ## Project Structure
 
 ```
 app/
-├── main.py               # FastAPI entry point
-├── database.py           # SQLAlchemy engine + session
-├── models/               # SQLAlchemy models (paper, search_session, conversation)
-├── schemas/              # Pydantic schemas
-├── routers/              # Endpoint routers (papers, search, conversation)
-├── agents/               # LLM agents (classifier, prompt_optimizer, summariser, chat)
-└── services/             # External services (openalex, pdf_parser)
+├── main.py                          # FastAPI entry point, loads .env, registers routers
+├── database.py                      # SQLAlchemy async engine + session dependency
+├── models/
+│   ├── paper.py                     # Paper model (openalex_id, title, authors, summary, etc.)
+│   └── conversation.py              # Conversation model (paper_id, role, message)
+├── schemas/
+│   └── paper.py                     # PaperCreate, PaperUpdate, PaperResponse
+├── routers/
+│   ├── papers.py                    # CRUD: POST/GET/PUT/DELETE /papers
+│   └── search.py                    # GET /search — full agent pipeline
+├── agents/
+│   ├── classifier_optimiser.py      # Gemini agent: field classification + query optimisation
+│   ├── summariser.py                # Paper summarisation (Phase 8)
+│   └── chat.py                      # Conversational chat (Phase 9)
+└── services/
+    ├── openalex.py                  # OpenAlex API client (semantic + keyword search)
+    └── pdf_parser.py               # PDF text extraction (Phase 7)
+tests/
+├── conftest.py                      # Fixtures: in-memory DB, async test client
+├── test_health.py                   # Health endpoint test
+├── test_papers.py                   # 13 tests: full CRUD + edge cases
+└── test_search.py                   # 5 tests: pipeline, validation, errors, fallback
 ```
 
-## Build Phases & Status
+## Current Implementation Status
 
-Follow strictly in order. Do not skip ahead.
+### Implemented (working + tested)
+- **Health endpoint** — `GET /health`
+- **Papers CRUD** — `POST/GET/PUT/DELETE /papers` with Pydantic validation, tag filtering, duplicate detection (409)
+- **OpenAlex search** — `GET /search` with semantic search (AI embeddings) + keyword fallback
+- **Query Intelligence agent** — Gemini classifies query into OpenAlex field + optimises for semantic search
+- **Search pipeline** — query → classify → optimise → semantic search → results (with field/optimised query in response)
+- **Database** — async SQLAlchemy, 2 models (Paper, Conversation), Alembic migration
+- **Test suite** — 19 tests, in-memory DB, mocked external APIs
 
-- [x] **Phase 1** — Project Skeleton (directory structure, venv, `.env`, health endpoint)
-- [x] **Phase 2** — Database (SQLAlchemy engine, 3 models, Alembic migration)
-- [x] **Phase 3** — Papers CRUD (Pydantic schemas, 5 endpoints, register router)
-- [x] **Phase 4** — OpenAlex Integration (API client, semantic search, `/search` endpoint)
-- [x] **Phase 5+6** — Classifier + Optimiser Agent (combined Gemini agent: field classification + query optimisation, wired into search pipeline)
-- [ ] **Phase 7** — Search Sessions (session schemas, GET endpoints for past sessions)
-- [ ] **Phase 8** — PDF Parser (PyMuPDF extraction, graceful fallback to abstract)
-- [ ] **Phase 9** — Summarisation Agent (structured summary, `POST /papers/{id}/summary`)
-- [ ] **Phase 10** — Chat Agent (conversation history, chat CRUD endpoints)
+### Remaining Phases
+- [ ] **Phase 7** — PDF Parser (PyMuPDF extraction from open access URLs, fallback to abstract)
+- [ ] **Phase 8** — Summariser Agent (`gemini-2.5-pro`, `POST /papers/{id}/summary`, summary stored on Paper)
+- [ ] **Phase 9** — Chat Agent (`gemini-2.5-flash`, `POST/GET/DELETE /papers/{id}/chat`, multi-turn conversation)
 
 ## Key Commands
 
@@ -59,6 +85,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 alembic upgrade head
 uvicorn app.main:app --reload
+pytest tests/ -v
 ```
 
 ## Environment Variables
@@ -79,28 +106,59 @@ OPEN_ALEX_API_KEY=
 - **Proper HTTP status codes** on all endpoints (200, 201, 404, 422, 500)
 - **PDF parsing** always falls back to abstract if unavailable or parsing fails
 - **Chat agent** loads full conversation history from DB on each call
+- **Summary stored on Paper model** — generate once, serve from DB thereafter
 - **Never commit** `.env` or `deepresearch.db`
 
 ## Workflow Rules
 
 1. Follow build phases in order — never skip ahead
-2. Commit after each completed phase with a descriptive message
-3. Confirm what was built and what to test before moving on
-4. Ask before making architectural decisions not in the brief
-5. See `DEEPRESEARCH_CLAUDE_CODE_BRIEF.md` for full specs (models, endpoints, agent prompts)
-6. **Validate after every implementation** — after building any feature, run the server and test ALL existing endpoints end-to-end (not just the new ones). Confirm correct responses, error handling, and that nothing is broken before moving on.
+2. **After each phase** — add new tests for the feature, then run `pytest tests/ -v` to confirm both new tests and all existing regression tests pass (0 failures allowed)
+3. Commit after each completed phase with a descriptive message
+4. Confirm what was built and what to test before moving on
+5. Ask before making architectural decisions not in the brief
+6. See `DEEPRESEARCH_CLAUDE_CODE_BRIEF.md` for full specs (models, endpoints, agent prompts)
+7. **Validate after every implementation** — after building any feature, run the server and test ALL existing endpoints end-to-end (not just the new ones). Confirm correct responses, error handling, and that nothing is broken before moving on.
+
+## Testing
+
+### Running Tests
+```bash
+source venv/bin/activate
+pytest tests/ -v
+```
+
+### When to Run
+- **After every implementation** — before telling the user it's done
+- **After any refactor** — even "safe" changes can break things
+- **Before every commit** — never commit with failing tests
+
+### What Must Pass
+- All existing tests must pass (regression) — 0 failures allowed
+- New features must include new tests covering happy path + error cases
+- Tests use in-memory SQLite (isolated from real DB) and mock all external APIs (Gemini, OpenAlex) — no API quota used
+
+### If Tests Fail
+1. **Do not move on** — fix the failure first
+2. Read the failure output carefully — identify if it's the new code or a regression
+3. If a new feature broke an existing test, the new code is wrong — fix it
+4. If a test itself is outdated (e.g. response shape changed intentionally), update the test
+5. Re-run the full suite after fixing — confirm everything passes
+
+### Adding Tests for New Features
+- Add tests to the relevant `tests/test_*.py` file or create a new one
+- Mock all external API calls (Gemini, OpenAlex) — tests must run offline and fast
+- Cover: valid input (200/201), invalid input (422), not found (404), external failure (500), graceful fallback
 
 ## Quality Bar — Targeting 90-100 (Outstanding)
 
 The code-related marks break down as:
 
 **API Functionality & Implementation (25/75)**
-- All 10 phases fully implemented and working end-to-end
+- All phases fully implemented and working end-to-end
 - Full CRUD on Papers with database integration
 - Multi-agent search pipeline (classify → optimise → search)
-- Search session persistence and retrieval
 - PDF parsing with graceful fallback
-- AI summarisation with structured output
+- AI summarisation with structured output, persisted on Paper
 - Multi-turn conversational chat per paper
 - All endpoints return appropriate JSON responses
 
@@ -132,9 +190,9 @@ The code-related marks break down as:
 - Correct status codes for every error scenario
 
 **Creativity & Innovation (6/75)**
-- Novel agentic pipeline (4 LLM agents working together)
+- Novel agentic pipeline (3 LLM agents working together)
 - Integration of contemporary technologies (Gemini, OpenAlex, PyMuPDF)
-- Originality in how agents compose (classify → optimise → search → summarise → chat)
+- Originality in how agents compose (classify + optimise → search → summarise → chat)
 
 ## What NOT to Build
 
