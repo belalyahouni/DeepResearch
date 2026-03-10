@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.paper import Paper
 from app.schemas.paper import PaperCreate, PaperResponse, PaperUpdate
+from app.routers.summary import summarise
+from app.schemas.summary import SummariseRequest
 from app.services.pdf_parser import extract_text_from_pdf
 
 router = APIRouter(prefix="/papers", tags=["Papers"])
@@ -30,6 +32,15 @@ async def create_paper(
     # Extract full text from PDF if available (best-effort, never blocks save)
     full_text = await extract_text_from_pdf(paper.open_access_pdf_url)
     paper.full_text = full_text
+
+    # Generate summary via the /summarise API (best-effort, never blocks save)
+    source_text = full_text or paper.abstract
+    if source_text:
+        try:
+            result = await summarise(SummariseRequest(text=source_text))
+            paper.summary = result["summary"]
+        except Exception:
+            pass  # summarisation failure must not block paper save
 
     db.add(paper)
     await db.commit()

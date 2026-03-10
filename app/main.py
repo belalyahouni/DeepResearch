@@ -3,7 +3,7 @@ from fastapi import FastAPI
 
 load_dotenv()
 
-from app.routers import papers, search
+from app.routers import papers, search, summary
 
 app = FastAPI(
     title="DeepResearch API",
@@ -13,6 +13,7 @@ app = FastAPI(
 
 app.include_router(papers.router)
 app.include_router(search.router)
+app.include_router(summary.router)
 
 
 @app.get("/health", tags=["Utility"])

@@ -41,6 +41,13 @@ def _mock_pdf_parser():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _mock_summariser():
+    """Mock summariser globally so tests never call Gemini."""
+    with patch("app.routers.summary.summarise_text", return_value=None):
+        yield
+
+
 @pytest.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)

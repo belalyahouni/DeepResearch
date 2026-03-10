@@ -44,13 +44,15 @@ app/
 │   ├── paper.py                     # Paper model (openalex_id, title, authors, summary, etc.)
 │   └── conversation.py              # Conversation model (paper_id, role, message)
 ├── schemas/
-│   └── paper.py                     # PaperCreate, PaperUpdate, PaperResponse
+│   ├── paper.py                     # PaperCreate, PaperUpdate, PaperResponse
+│   └── summary.py                   # SummariseRequest, SummariseResponse
 ├── routers/
 │   ├── papers.py                    # CRUD: POST/GET/PUT/DELETE /papers
-│   └── search.py                    # GET /search — full agent pipeline
+│   ├── search.py                    # GET /search — full agent pipeline
+│   └── summary.py                   # POST /summarise — single summarisation API
 ├── agents/
 │   ├── classifier_optimiser.py      # Gemini agent: field classification + query optimisation
-│   ├── summariser.py                # Paper summarisation (Phase 8)
+│   ├── summariser.py                # Concise plain-text summaries via Gemini 2.5 Pro
 │   └── chat.py                      # Conversational chat (Phase 9)
 └── services/
     ├── openalex.py                  # OpenAlex API client (semantic + keyword search)
@@ -58,7 +60,8 @@ app/
 tests/
 ├── conftest.py                      # Fixtures: in-memory DB, async test client
 ├── test_health.py                   # Health endpoint test
-├── test_papers.py                   # 13 tests: full CRUD + edge cases
+├── test_papers.py                   # 15 tests: full CRUD + edge cases + PDF extraction
+├── test_summariser.py               # 6 tests: /summarise endpoint + summary on save
 └── test_search.py                   # 5 tests: pipeline, validation, errors, fallback
 ```
 
@@ -70,12 +73,12 @@ tests/
 - **OpenAlex search** — `GET /search` with semantic search (AI embeddings) + keyword fallback
 - **Query Intelligence agent** — Gemini classifies query into OpenAlex field + optimises for semantic search
 - **Search pipeline** — query → classify → optimise → semantic search → results (with field/optimised query in response)
+- **PDF Parser** — PyMuPDF extraction from open access URLs, fallback to abstract, full_text stored on Paper
+- **Summariser agent** — `gemini-2.5-pro`, `POST /summarise` accepts any text (abstract or full paper). `POST /papers` calls `/summarise` internally with full_text (fallback to abstract). Summary stored on Paper.
 - **Database** — async SQLAlchemy, 2 models (Paper, Conversation), Alembic migration
-- **Test suite** — 19 tests, in-memory DB, mocked external APIs
+- **Test suite** — 32 tests, in-memory DB, mocked external APIs
 
 ### Remaining Phases
-- [ ] **Phase 7** — PDF Parser (PyMuPDF extraction from open access URLs, fallback to abstract)
-- [ ] **Phase 8** — Summariser Agent (`gemini-2.5-pro`, `POST /papers/{id}/summary`, summary stored on Paper)
 - [ ] **Phase 9** — Chat Agent (`gemini-2.5-flash`, `POST/GET/DELETE /papers/{id}/chat`, multi-turn conversation)
 
 ## Key Commands

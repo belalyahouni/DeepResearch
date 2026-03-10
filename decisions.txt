@@ -13,6 +13,19 @@ the llms to use
 the agentic workflow
 
 what to store in the db
+    paper
+        name
+        abstract
+        link
+            text?
+            summary?
+
+    not store
+        sometime pdf when just querying many.
+            no just use abstract
+        same with summary
+            summarise abstract only
+        redo do full summary when saved.
 
 what paper api to use
     semantic scholar (best but not readily avalibale)
