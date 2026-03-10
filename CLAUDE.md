@@ -84,7 +84,29 @@ OPEN_ALEX_API_KEY=
 - README.md with setup instructions (**required**)
 - Novel 3-agent pipeline: classify + optimise → search → summarise → chat
 
-## What NOT to Build
+## Submission TODO
 
-- Auth, rate limiting, frontend, Docker, deployment
+All core API functionality is complete (42 tests passing). Remaining work is polish, documentation, and presentation.
+
+### Code & API (do first)
+- [ ] **README.md** — project overview, setup instructions, endpoint summary, how to run tests. Pass/fail gate.
+- [ ] **Swagger polish** — add descriptions, parameter docs, example requests/responses, and error codes to all endpoints
+- [ ] **Export Swagger to PDF** — save `openapi.json` + exported PDF to repo
+- [ ] **Frontend** — simple UI for demo and presentation (search, save, library, chat)
+
+### Written Deliverables
+- [ ] **Technical report** (max 5 pages) — stack justification, architecture, testing approach, limitations, GenAI declaration
+- [ ] **GenAI conversation logs** — export and include Claude conversation examples
+- [ ] **Presentation slides** (PowerPoint, 5 min) — version control, API docs, technical highlights, live demo plan
+
+### Submission Checklist (pass/fail gates)
+- [ ] Public GitHub repo with visible commit history
+- [ ] README.md present
+- [ ] API documentation exported as PDF
+- [ ] Technical report with GenAI declaration
+- [ ] Code runs locally (`uvicorn app.main:app --reload`)
+- [ ] All tests pass (`pytest tests/ -v`)
+
+### What NOT to Build
+- Auth, rate limiting, Docker, deployment
 - Citation graph, recommendations, user accounts
