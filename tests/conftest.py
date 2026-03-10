@@ -1,6 +1,7 @@
 """Shared test fixtures — in-memory DB and async test client."""
 
 from collections.abc import AsyncGenerator
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -31,6 +32,13 @@ async def setup_db():
     yield
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest.fixture(autouse=True)
+def _mock_pdf_parser():
+    """Mock PDF parser globally so tests never make real HTTP requests for PDFs."""
+    with patch("app.routers.papers.extract_text_from_pdf", return_value=None):
+        yield
 
 
 @pytest.fixture

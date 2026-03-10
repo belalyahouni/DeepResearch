@@ -38,6 +38,8 @@ class PaperResponse(BaseModel):
     citation_count: int
     tags: str | None
     notes: str | None
+    full_text: str | None
+    summary: str | None
     created_at: datetime
     updated_at: datetime
 

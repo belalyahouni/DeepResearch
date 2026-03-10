@@ -1,5 +1,7 @@
 """Tests for the papers CRUD endpoints."""
 
+from unittest.mock import patch
+
 from httpx import AsyncClient
 
 SAMPLE_PAPER = {
@@ -127,3 +129,29 @@ async def test_delete_paper(client: AsyncClient):
 async def test_delete_paper_not_found(client: AsyncClient):
     response = await client.delete("/papers/999")
     assert response.status_code == 404
+
+
+# --- PDF EXTRACTION ON SAVE ---
+
+async def test_create_paper_extracts_pdf_text(client: AsyncClient):
+    """When a paper is saved with a PDF URL, full text is extracted and stored."""
+    with patch(
+        "app.routers.papers.extract_text_from_pdf",
+        return_value="Extracted full text of the paper.",
+    ):
+        response = await client.post("/papers", json=SAMPLE_PAPER)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["full_text"] == "Extracted full text of the paper."
+
+
+async def test_create_paper_pdf_extraction_fails_gracefully(client: AsyncClient):
+    """Paper is still saved when PDF extraction fails."""
+    with patch(
+        "app.routers.papers.extract_text_from_pdf",
+        return_value=None,
+    ):
+        response = await client.post("/papers", json=SAMPLE_PAPER)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["full_text"] is None

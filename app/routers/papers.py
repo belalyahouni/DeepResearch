@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.paper import Paper
 from app.schemas.paper import PaperCreate, PaperResponse, PaperUpdate
+from app.services.pdf_parser import extract_text_from_pdf
 
 router = APIRouter(prefix="/papers", tags=["Papers"])
 
@@ -25,6 +26,11 @@ async def create_paper(
         raise HTTPException(status_code=409, detail="Paper already saved")
 
     paper = Paper(**body.model_dump())
+
+    # Extract full text from PDF if available (best-effort, never blocks save)
+    full_text = await extract_text_from_pdf(paper.open_access_pdf_url)
+    paper.full_text = full_text
+
     db.add(paper)
     await db.commit()
     await db.refresh(paper)
