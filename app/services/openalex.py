@@ -112,15 +112,19 @@ async def get_related_papers(
     *,
     per_page: int = 5,
 ) -> list[dict[str, Any]]:
-    """Find papers related to *openalex_id* by fetching its concepts from
-    OpenAlex and searching for other works with the top concept.
+    """Find papers related to *openalex_id* by fetching its topics from
+    OpenAlex and filtering by the same domain, field, and subfield.
+
+    The OpenAlex topics hierarchy is: domain → field → subfield → topic.
+    We extract all three levels from the paper's primary topic and combine
+    them into a single filter so results stay within the same narrow area
+    of research.
 
     Raises ``RuntimeError`` if the API call fails.
     """
     api_key = os.getenv("OPEN_ALEX_API_KEY")
-    headers: dict[str, str] = {}
 
-    # Step 1: Fetch the source work to get its concepts
+    # Step 1: Fetch the source work to get its topics
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             params: dict[str, Any] = {}
@@ -129,26 +133,42 @@ async def get_related_papers(
             resp = await client.get(
                 f"{OPENALEX_BASE_URL}/works/{openalex_id.split('/')[-1]}",
                 params=params,
-                headers=headers,
             )
             resp.raise_for_status()
     except (httpx.HTTPStatusError, httpx.RequestError) as exc:
         raise RuntimeError(f"Failed to fetch work from OpenAlex: {exc}") from exc
 
     work = resp.json()
-    concepts = work.get("concepts") or work.get("topics") or []
-    if not concepts:
+
+    # Build topic-hierarchy filter from the primary topic
+    primary_topic = work.get("primary_topic") or {}
+    filter_parts: list[str] = []
+
+    domain = primary_topic.get("domain", {})
+    field = primary_topic.get("field", {})
+    subfield = primary_topic.get("subfield", {})
+
+    if domain.get("id"):
+        filter_parts.append(f"topics.domain.id:{domain['id']}")
+    if field.get("id"):
+        filter_parts.append(f"topics.field.id:{field['id']}")
+    if subfield.get("id"):
+        filter_parts.append(f"topics.subfield.id:{subfield['id']}")
+
+    # Fallback: if no primary_topic, try legacy concepts
+    if not filter_parts:
+        concepts = work.get("concepts") or []
+        if concepts:
+            filter_parts.append(f"concepts.id:{concepts[0].get('id', '')}")
+
+    if not filter_parts:
         return []
 
-    # Use the top concept/topic to find related works
-    top_concept = concepts[0]
-    concept_id = top_concept.get("id", "")
-
-    # Step 2: Search for related works with the same concept
+    # Step 2: Search for related works within the same domain/field/subfield
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             search_params: dict[str, Any] = {
-                "filter": f"concepts.id:{concept_id}",
+                "filter": ",".join(filter_parts),
                 "per_page": per_page + 1,  # extra to allow excluding self
                 "select": SELECT_FIELDS,
                 "sort": "cited_by_count:desc",
@@ -158,7 +178,6 @@ async def get_related_papers(
             resp = await client.get(
                 f"{OPENALEX_BASE_URL}/works",
                 params=search_params,
-                headers=headers,
             )
             resp.raise_for_status()
     except (httpx.HTTPStatusError, httpx.RequestError) as exc:
