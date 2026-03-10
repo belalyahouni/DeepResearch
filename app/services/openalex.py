@@ -105,3 +105,71 @@ async def search_papers(
     results: list[dict[str, Any]] = data.get("results", [])
 
     return [_clean_paper(r) for r in results]
+
+
+async def get_related_papers(
+    openalex_id: str,
+    *,
+    per_page: int = 5,
+) -> list[dict[str, Any]]:
+    """Find papers related to *openalex_id* by fetching its concepts from
+    OpenAlex and searching for other works with the top concept.
+
+    Raises ``RuntimeError`` if the API call fails.
+    """
+    api_key = os.getenv("OPEN_ALEX_API_KEY")
+    headers: dict[str, str] = {}
+
+    # Step 1: Fetch the source work to get its concepts
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            params: dict[str, Any] = {}
+            if api_key:
+                params["api_key"] = api_key
+            resp = await client.get(
+                f"{OPENALEX_BASE_URL}/works/{openalex_id.split('/')[-1]}",
+                params=params,
+                headers=headers,
+            )
+            resp.raise_for_status()
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        raise RuntimeError(f"Failed to fetch work from OpenAlex: {exc}") from exc
+
+    work = resp.json()
+    concepts = work.get("concepts") or work.get("topics") or []
+    if not concepts:
+        return []
+
+    # Use the top concept/topic to find related works
+    top_concept = concepts[0]
+    concept_id = top_concept.get("id", "")
+
+    # Step 2: Search for related works with the same concept
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            search_params: dict[str, Any] = {
+                "filter": f"concepts.id:{concept_id}",
+                "per_page": per_page + 1,  # extra to allow excluding self
+                "select": SELECT_FIELDS,
+                "sort": "cited_by_count:desc",
+            }
+            if api_key:
+                search_params["api_key"] = api_key
+            resp = await client.get(
+                f"{OPENALEX_BASE_URL}/works",
+                params=search_params,
+                headers=headers,
+            )
+            resp.raise_for_status()
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        raise RuntimeError(f"Failed to search related works: {exc}") from exc
+
+    data = resp.json()
+    results: list[dict[str, Any]] = data.get("results", [])
+
+    # Exclude the source paper and limit to per_page
+    cleaned = [
+        _clean_paper(r) for r in results
+        if r.get("id") != openalex_id
+    ]
+    return cleaned[:per_page]

@@ -1,6 +1,6 @@
 """Tests for the papers CRUD endpoints."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
 
@@ -155,3 +155,58 @@ async def test_create_paper_pdf_extraction_fails_gracefully(client: AsyncClient)
     assert response.status_code == 201
     data = response.json()
     assert data["full_text"] is None
+
+
+# --- RELATED PAPERS ---
+
+MOCK_RELATED_RESULTS = [
+    {
+        "openalex_id": "https://openalex.org/W000001",
+        "doi": None,
+        "title": "BERT: Pre-training of Deep Bidirectional Transformers",
+        "authors": "Jacob Devlin",
+        "abstract": "We introduce BERT...",
+        "year": 2019,
+        "url": None,
+        "open_access_pdf_url": None,
+        "citation_count": 80000,
+        "relevance_score": None,
+    },
+]
+
+
+async def test_related_papers(client: AsyncClient):
+    """Happy path: returns related papers from OpenAlex."""
+    create = await client.post("/papers", json=SAMPLE_PAPER)
+    paper_id = create.json()["id"]
+
+    with patch(
+        "app.routers.papers.get_related_papers",
+        new_callable=AsyncMock,
+        return_value=MOCK_RELATED_RESULTS,
+    ):
+        response = await client.get(f"/papers/{paper_id}/related")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["title"] == "BERT: Pre-training of Deep Bidirectional Transformers"
+
+
+async def test_related_papers_not_found(client: AsyncClient):
+    """Returns 404 when the paper does not exist."""
+    response = await client.get("/papers/999/related")
+    assert response.status_code == 404
+
+
+async def test_related_papers_openalex_failure(client: AsyncClient):
+    """Returns 500 when OpenAlex fails."""
+    create = await client.post("/papers", json=SAMPLE_PAPER)
+    paper_id = create.json()["id"]
+
+    with patch(
+        "app.routers.papers.get_related_papers",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("OpenAlex API down"),
+    ):
+        response = await client.get(f"/papers/{paper_id}/related")
+    assert response.status_code == 500
