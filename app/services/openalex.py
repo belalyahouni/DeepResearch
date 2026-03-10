@@ -152,8 +152,6 @@ async def get_related_papers(
         filter_parts.append(f"topics.domain.id:{domain['id']}")
     if field.get("id"):
         filter_parts.append(f"topics.field.id:{field['id']}")
-    if subfield.get("id"):
-        filter_parts.append(f"topics.subfield.id:{subfield['id']}")
 
     # Fallback: if no primary_topic, try legacy concepts
     if not filter_parts:
