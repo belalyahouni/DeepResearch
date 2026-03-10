@@ -37,3 +37,9 @@ what paper api to use
     openalex (own semantic search) + pdf retriever.
         openalex w beta semantic search chosen.
     
+testing
+    some things we can automate
+    but things like responses we have to manually check and adjsut systme prompts.
+
+problem with ai:
+    we had to imrpove simplicity and modularity of code.

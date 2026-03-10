@@ -48,6 +48,13 @@ def _mock_summariser():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _mock_chat_agent():
+    """Mock chat agent globally so tests never call Gemini."""
+    with patch("app.routers.conversation.chat", return_value=None):
+        yield
+
+
 @pytest.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
