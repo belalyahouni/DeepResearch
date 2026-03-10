@@ -5,14 +5,14 @@ from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient
 
 SAMPLE_PAPER = {
-    "openalex_id": "https://openalex.org/W2963403868",
-    "title": "Attention Is All You Need",
-    "authors": "Ashish Vaswani, Noam Shazeer",
-    "abstract": "The dominant sequence transduction models...",
-    "year": 2017,
-    "url": "https://arxiv.org/abs/1706.03762",
-    "open_access_pdf_url": "https://arxiv.org/pdf/1706.03762",
-    "citation_count": 100000,
+    "openalex_id": "https://openalex.org/W4415109130",
+    "title": "Mixture of Weight-shared Heterogeneous Group Attention Experts for Dynamic Token-wise KV Optimization",
+    "authors": "Guoqiang Song, D. Z. Liao, Yijiao Zhao, Kejiang Ye, Chunxiang Xu, Xiang Gao",
+    "abstract": "Transformer models face scalability challenges in causal language modeling (CLM) due to inefficient memory allocation for growing key-value (KV) caches...",
+    "year": 2025,
+    "url": "http://arxiv.org/abs/2506.13541",
+    "open_access_pdf_url": "https://arxiv.org/pdf/2506.13541",
+    "citation_count": 0,
 }
 
 
@@ -22,7 +22,7 @@ async def test_create_paper(client: AsyncClient):
     response = await client.post("/papers", json=SAMPLE_PAPER)
     assert response.status_code == 201
     data = response.json()
-    assert data["title"] == "Attention Is All You Need"
+    assert data["title"] == SAMPLE_PAPER["title"]
     assert data["openalex_id"] == SAMPLE_PAPER["openalex_id"]
     assert data["id"] is not None
     assert data["tags"] is None
@@ -60,7 +60,7 @@ async def test_get_paper_by_id(client: AsyncClient):
     paper_id = create.json()["id"]
     response = await client.get(f"/papers/{paper_id}")
     assert response.status_code == 200
-    assert response.json()["title"] == "Attention Is All You Need"
+    assert response.json()["title"] == SAMPLE_PAPER["title"]
 
 
 async def test_get_paper_not_found(client: AsyncClient):
@@ -79,7 +79,7 @@ async def test_filter_papers_by_tag(client: AsyncClient):
     assert response.status_code == 200
     results = response.json()
     assert len(results) == 1
-    assert results[0]["title"] == "Attention Is All You Need"
+    assert results[0]["title"] == SAMPLE_PAPER["title"]
 
 
 async def test_filter_papers_no_match(client: AsyncClient):
@@ -104,7 +104,7 @@ async def test_update_paper(client: AsyncClient):
     assert data["tags"] == "deep learning"
     assert data["notes"] == "Foundational paper"
     # Other fields unchanged
-    assert data["title"] == "Attention Is All You Need"
+    assert data["title"] == SAMPLE_PAPER["title"]
 
 
 async def test_update_paper_not_found(client: AsyncClient):

@@ -22,16 +22,16 @@ class PaperCreate(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "openalex_id": "https://openalex.org/W2963403868",
-                    "title": "Attention Is All You Need",
-                    "authors": "Ashish Vaswani, Noam Shazeer, Niki Parmar",
-                    "abstract": "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks...",
-                    "year": 2017,
-                    "url": "https://arxiv.org/abs/1706.03762",
-                    "open_access_pdf_url": "https://arxiv.org/pdf/1706.03762",
-                    "citation_count": 100000,
-                    "tags": "transformers, attention, NLP",
-                    "notes": "Foundational transformer paper",
+                    "openalex_id": "https://openalex.org/W4415109130",
+                    "title": "Mixture of Weight-shared Heterogeneous Group Attention Experts for Dynamic Token-wise KV Optimization",
+                    "authors": "Guoqiang Song, D. Z. Liao, Yijiao Zhao, Kejiang Ye, Chunxiang Xu, Xiang Gao",
+                    "abstract": "Transformer models face scalability challenges in causal language modeling (CLM) due to inefficient memory allocation for growing key-value (KV) caches...",
+                    "year": 2025,
+                    "url": "http://arxiv.org/abs/2506.13541",
+                    "open_access_pdf_url": "https://arxiv.org/pdf/2506.13541",
+                    "citation_count": 0,
+                    "tags": "transformers, KV cache, MoE",
+                    "notes": "Novel MoE approach to dynamic KV optimisation",
                 }
             ]
         }
@@ -79,18 +79,18 @@ class PaperResponse(BaseModel):
             "examples": [
                 {
                     "id": 1,
-                    "openalex_id": "https://openalex.org/W2963403868",
-                    "title": "Attention Is All You Need",
-                    "authors": "Ashish Vaswani, Noam Shazeer, Niki Parmar",
-                    "abstract": "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks...",
-                    "year": 2017,
-                    "url": "https://arxiv.org/abs/1706.03762",
-                    "open_access_pdf_url": "https://arxiv.org/pdf/1706.03762",
-                    "citation_count": 100000,
-                    "tags": "transformers, attention",
-                    "notes": "Foundational paper",
-                    "full_text": "We propose a new simple network architecture, the Transformer...",
-                    "summary": "This paper introduces the Transformer architecture...",
+                    "openalex_id": "https://openalex.org/W4415109130",
+                    "title": "Mixture of Weight-shared Heterogeneous Group Attention Experts for Dynamic Token-wise KV Optimization",
+                    "authors": "Guoqiang Song, D. Z. Liao, Yijiao Zhao, Kejiang Ye, Chunxiang Xu, Xiang Gao",
+                    "abstract": "Transformer models face scalability challenges in causal language modeling (CLM) due to inefficient memory allocation for growing key-value (KV) caches...",
+                    "year": 2025,
+                    "url": "http://arxiv.org/abs/2506.13541",
+                    "open_access_pdf_url": "https://arxiv.org/pdf/2506.13541",
+                    "citation_count": 0,
+                    "tags": "transformers, KV cache, MoE",
+                    "notes": "Novel MoE approach to dynamic KV optimisation",
+                    "full_text": "Transformer models face scalability challenges in causal language modeling...",
+                    "summary": "This paper proposes mixSGA, a mixture-of-expert approach that dynamically optimises token-wise computation and memory allocation for KV caches...",
                     "created_at": "2025-01-15T10:30:00",
                     "updated_at": "2025-01-15T10:30:00",
                 }

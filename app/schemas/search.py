@@ -30,23 +30,23 @@ class SearchResponse(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "original_query": "how do transformers work",
+                    "original_query": "KV cache optimisation for transformers",
                     "field_id": 154945302,
                     "field": "Artificial Intelligence",
-                    "optimised_query": "transformer architecture self-attention mechanism neural networks",
+                    "optimised_query": "key-value cache memory optimisation transformer language models",
                     "result_count": 1,
                     "results": [
                         {
-                            "openalex_id": "https://openalex.org/W2963403868",
-                            "doi": "https://doi.org/10.48550/arXiv.1706.03762",
-                            "title": "Attention Is All You Need",
-                            "authors": "Ashish Vaswani, Noam Shazeer",
-                            "abstract": "The dominant sequence transduction models...",
-                            "year": 2017,
-                            "url": "https://arxiv.org/abs/1706.03762",
-                            "open_access_pdf_url": "https://arxiv.org/pdf/1706.03762",
-                            "citation_count": 100000,
-                            "relevance_score": 0.95,
+                            "openalex_id": "https://openalex.org/W4415109130",
+                            "doi": "https://doi.org/10.48550/arxiv.2506.13541",
+                            "title": "Mixture of Weight-shared Heterogeneous Group Attention Experts for Dynamic Token-wise KV Optimization",
+                            "authors": "Guoqiang Song, D. Z. Liao, Yijiao Zhao, Kejiang Ye, Chunxiang Xu, Xiang Gao",
+                            "abstract": "Transformer models face scalability challenges in causal language modeling (CLM) due to inefficient memory allocation for growing key-value (KV) caches...",
+                            "year": 2025,
+                            "url": "http://arxiv.org/abs/2506.13541",
+                            "open_access_pdf_url": "https://arxiv.org/pdf/2506.13541",
+                            "citation_count": 0,
+                            "relevance_score": 0.896,
                         }
                     ],
                 }
