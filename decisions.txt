@@ -43,3 +43,6 @@ testing
 
 problem with ai:
     we had to imrpove simplicity and modularity of code.
+
+    related papers from openalex wasnt working
+        looked at the docs for proper usage
