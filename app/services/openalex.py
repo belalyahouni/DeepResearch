@@ -146,18 +146,24 @@ async def get_related_papers(
 
     domain = primary_topic.get("domain", {})
     field = primary_topic.get("field", {})
-    subfield = primary_topic.get("subfield", {})
 
-    if domain.get("id"):
-        filter_parts.append(f"topics.domain.id:{domain['id']}")
-    if field.get("id"):
-        filter_parts.append(f"topics.field.id:{field['id']}")
+    # OpenAlex filters require the short numeric ID (e.g. "17"),
+    # not the full URL (e.g. "https://openalex.org/fields/17")
+    domain_id = domain.get("id", "").rsplit("/", 1)[-1] if domain.get("id") else ""
+    field_id = field.get("id", "").rsplit("/", 1)[-1] if field.get("id") else ""
+
+    if domain_id:
+        filter_parts.append(f"primary_topic.domain.id:{domain_id}")
+    if field_id:
+        filter_parts.append(f"primary_topic.field.id:{field_id}")
 
     # Fallback: if no primary_topic, try legacy concepts
     if not filter_parts:
         concepts = work.get("concepts") or []
         if concepts:
-            filter_parts.append(f"concepts.id:{concepts[0].get('id', '')}")
+            concept_id = concepts[0].get("id", "").rsplit("/", 1)[-1]
+            if concept_id:
+                filter_parts.append(f"concepts.id:{concept_id}")
 
     if not filter_parts:
         return []
