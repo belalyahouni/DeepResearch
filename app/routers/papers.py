@@ -155,9 +155,7 @@ async def delete_paper(
     paper_id: int,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Remove a paper from the library. This also deletes any associated
-    conversation history.
-    """
+    """Remove a paper from the library."""
     result = await db.execute(select(Paper).where(Paper.id == paper_id))
     paper = result.scalar_one_or_none()
     if not paper:

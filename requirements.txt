@@ -10,5 +10,6 @@ python-dotenv
 httpx
 google-genai
 pymupdf
+mcp[cli]
 pytest
 pytest-asyncio

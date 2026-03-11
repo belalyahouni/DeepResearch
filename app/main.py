@@ -5,13 +5,12 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 load_dotenv()
 
-from app.routers import conversation, papers, search, summary
+from app.routers import papers, search, summary
 
 tags_metadata = [
     {"name": "Search", "description": "Agentic search pipeline: classify the academic field, optimise the query, and retrieve papers from OpenAlex via semantic search."},
     {"name": "Papers", "description": "CRUD operations for the saved paper library — save, list, retrieve, update, and delete academic papers."},
     {"name": "Summarisation", "description": "AI-powered summarisation of academic text using the Gemini summariser agent."},
-    {"name": "Chat", "description": "Multi-turn conversation about a saved paper, powered by the Gemini chat agent."},
     {"name": "Utility", "description": "System health and status checks."},
 ]
 
@@ -42,7 +41,6 @@ app.add_middleware(
 app.include_router(papers.router)
 app.include_router(search.router)
 app.include_router(summary.router)
-app.include_router(conversation.router)
 
 
 @app.get("/health", tags=["Utility"], summary="Health check")
