@@ -25,6 +25,7 @@ The API uses a **3-agent pipeline** powered by Google Gemini:
 1. **Classifier + Optimiser Agent** (`gemini-2.5-flash-lite`) — classifies the user's query into an academic field and rewrites it for optimal retrieval.
 2. **Summariser Agent** (`gemini-2.5-pro`) — generates structured summaries of paper abstracts or full texts.
 3. **Chat Agent** (`gemini-2.5-flash`) — enables multi-turn conversation about a saved paper using its full text as context.
+4. **Related Papers Agent** (`gemini-2.5-flash-lite`) — generates semantic search queries from a saved paper to discover related work via OpenAlex (250M+ works).
 
 When a paper is saved, the system automatically extracts the full text from the open-access PDF (via PyMuPDF) and generates an AI summary — both best-effort, never blocking the save operation.
 
@@ -72,7 +73,7 @@ All endpoints (except `/health`) require the `X-API-Key` header.
 | GET | `/papers/{id}` | Get a saved paper |
 | PUT | `/papers/{id}` | Update tags/notes |
 | DELETE | `/papers/{id}` | Remove paper |
-| GET | `/papers/{id}/related` | Find related papers via OpenAlex concepts |
+| GET | `/papers/{id}/related` | Find related papers (agent-powered semantic search) |
 | POST | `/papers/{id}/chat` | Send chat message about paper |
 | GET | `/papers/{id}/chat` | Get conversation history |
 | DELETE | `/papers/{id}/chat` | Clear conversation |

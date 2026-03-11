@@ -96,7 +96,7 @@ TrustedHostMiddleware(allowed_hosts=["localhost", "127.0.0.1"])
 | `test_invalid_api_key_returns_401` | Request with incorrect key is rejected |
 | `test_health_does_not_require_api_key` | `/health` remains publicly accessible |
 
-The test client in `conftest.py` is configured with the correct API key and `localhost` host header, so all 42 existing endpoint tests continue to pass through the security layers.
+The test client in `conftest.py` is configured with the correct API key and `localhost` host header, so all 48 existing endpoint tests continue to pass through the security layers.
 
 ---
 

@@ -156,6 +156,37 @@ GET /papers/{id}
 - Editable notes field (free text)
 - Save button for tags/notes
 - "Chat about this paper" button → opens Screen 5
+- Related Papers section (see below)
+
+**Related Papers section:**
+
+Below the paper metadata, show a "Related Papers" section. Load on page open or via a "Find Related" button.
+
+**API Call:**
+```
+GET /papers/{id}/related
+```
+**Response:**
+```json
+{
+  "paper_id": 1,
+  "paper_title": "mixSGA: a stochastic genetic algorithm...",
+  "search_queries": ["stochastic genetic algorithm optimisation", "metaheuristic hybrid search"],
+  "result_count": 10,
+  "results": [
+    {
+      "openalex_id": "https://openalex.org/W...",
+      "title": "A related paper title",
+      "authors": "Author One, Author Two",
+      "abstract": "...",
+      "year": 2022,
+      "citation_count": 50,
+      "relevance_score": 0.85
+    }
+  ]
+}
+```
+**UI:** List of related paper cards (similar to search results). Each card can have a "Save" button to add to the library.
 
 **Update tags/notes API call:**
 ```

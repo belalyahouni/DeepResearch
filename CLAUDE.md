@@ -24,6 +24,7 @@ FastAPI + SQLite + Gemini + OpenAlex. University coursework (COMP3011, Leeds).
 | Classifier + Optimiser | `gemini-2.5-flash-lite` |
 | Summariser | `gemini-2.5-pro` |
 | Chat | `gemini-2.5-flash` |
+| Related Papers | `gemini-2.5-flash-lite` |
 
 ## API Endpoints
 
@@ -37,6 +38,7 @@ FastAPI + SQLite + Gemini + OpenAlex. University coursework (COMP3011, Leeds).
 | GET | `/papers/{id}` | Get a saved paper |
 | PUT | `/papers/{id}` | Update tags/notes |
 | DELETE | `/papers/{id}` | Remove paper |
+| GET | `/papers/{id}/related` | Find related papers (agent-powered semantic search) |
 | POST | `/papers/{id}/chat` | Send chat message about paper (201) |
 | GET | `/papers/{id}/chat` | Get conversation history |
 | DELETE | `/papers/{id}/chat` | Clear conversation (204) |
@@ -76,7 +78,7 @@ API_KEY=
 - Run `pytest tests/ -v` after every change — 0 failures allowed
 - Tests use in-memory SQLite and mock all external APIs (Gemini, OpenAlex)
 - Cover: happy path, invalid input (422), not found (404), external failure (500), graceful fallback
-- 45 tests across 7 test files (includes `test_auth.py`)
+- 48 tests across 7 test files (includes `test_auth.py`)
 
 ## Quality Bar — Targeting 90-100
 
@@ -88,12 +90,12 @@ API_KEY=
 
 ## Submission TODO
 
-All core API functionality is complete (45 tests passing). Remaining work is polish, documentation, and presentation.
+All core API functionality is complete (48 tests passing). Remaining work is frontend, written deliverables, and presentation.
 
 ### Code & API (do first)
-- [ ] **README.md** — project overview, setup instructions, endpoint summary, how to run tests. Pass/fail gate.
-- [ ] **Swagger polish** — add descriptions, parameter docs, example requests/responses, and error codes to all endpoints
-- [ ] **Export Swagger to PDF** — save `openapi.json` + exported PDF to repo
+- [x] **README.md** — project overview, setup instructions, endpoint summary, how to run tests. Pass/fail gate.
+- [x] **Swagger polish** — add descriptions, parameter docs, example requests/responses, and error codes to all endpoints
+- [x] **Export Swagger to PDF** — save `openapi.json` + exported PDF to repo
 - [ ] **Frontend** — simple UI for demo and presentation (search, save, library, chat)
 
 ### Written Deliverables
@@ -103,11 +105,11 @@ All core API functionality is complete (45 tests passing). Remaining work is pol
 
 ### Submission Checklist (pass/fail gates)
 - [ ] Public GitHub repo with visible commit history
-- [ ] README.md present
-- [ ] API documentation exported as PDF
+- [x] README.md present
+- [x] API documentation exported as PDF
 - [ ] Technical report with GenAI declaration
-- [ ] Code runs locally (`uvicorn app.main:app --reload`)
-- [ ] All tests pass (`pytest tests/ -v`)
+- [x] Code runs locally (`uvicorn app.main:app --reload`)
+- [x] All tests pass (`pytest tests/ -v`)
 
 ## Security
 

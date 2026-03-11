@@ -12,7 +12,7 @@ Marks are cumulative — to score 90+ you must satisfy EVERY band below.
 | Requirement | Status | Evidence |
 |---|---|---|
 | Working CRUD operations with database | DONE | `POST/GET/PUT/DELETE /papers` — full CRUD on `Paper` model via SQLAlchemy async ORM, SQLite DB |
-| At least 4 API endpoints via HTTP | DONE | 11 endpoints total: `/health`, `/search`, `/summarise`, 5x `/papers`, 3x `/papers/{id}/chat` |
+| At least 4 API endpoints via HTTP | DONE | 12 endpoints total: `/health`, `/search`, `/summarise`, 5x `/papers`, `/papers/{id}/related`, 3x `/papers/{id}/chat` |
 | Handle user inputs, return JSON responses | DONE | All endpoints accept/return JSON, Pydantic validation on all request bodies |
 | Correct HTTP status/error codes | DONE | 200, 201, 204, 404, 409, 422, 500 — all used correctly per convention |
 | Demonstrable via local execution | DONE | `uvicorn app.main:app --reload` works |
@@ -23,59 +23,46 @@ Marks are cumulative — to score 90+ you must satisfy EVERY band below.
 
 ---
 
-## BAND 50–59 (Satisfactory) — 2 GAPS
+## BAND 50–59 (Satisfactory) — 1 GAP
 
 | Requirement | Status | Detail |
 |---|---|---|
-| Complete API with documentation | DONE | Swagger UI auto-generated at `/docs`, all endpoints have docstrings |
-| **Basic authentication present** | NOT DONE | No auth whatsoever — no API key, no token, no middleware. The spec mentions "basic authentication" at 50-59 and "authentication" at 60-69 |
-| Demonstrates understanding of architecture | DONE | 3-agent pipeline (classifier + summariser + chat), modular routers/schemas/models/services/agents |
+| Complete API with documentation | DONE | Swagger UI at `/docs` with descriptions, examples, and error codes on all 12 endpoints |
+| **Basic authentication present** | DONE | API key auth via `X-API-Key` header, `app/auth.py`, timing-safe comparison with `secrets.compare_digest`. See `AUTHENTICATION.md` |
+| Demonstrates understanding of architecture | DONE | 4-agent pipeline (classifier + summariser + chat + related papers), modular routers/schemas/models/services/agents |
 | Clear technical report | N/A (non-code) | — |
 | Regular commit history | DONE | Multiple commits with descriptive messages |
 | **Hosted on external web server** | NOT DONE | No deployment config. Spec says "e.g. PythonAnywhere". No Docker, no Procfile, no deployment files |
 
 ### What needs to be built:
-1. **API key authentication** — add a simple API key middleware or dependency. Every endpoint (except maybe `/health` and `/docs`) should require an `X-API-Key` header or `?api_key=` query parameter. This is mentioned in THREE bands (50-59, 60-69, 80-89) so it's clearly important.
-   - Create `app/auth.py` with a `get_api_key` dependency
-   - Add it to all routers
-   - Store valid API key(s) in `.env`
-   - Add tests for 401/403 on missing/invalid key
-
-2. **Deployment to PythonAnywhere** (or similar) — the spec explicitly says "Hosted on an external web server, e.g. PythonAnywhere" at the 50-59 band, and "Professional deployment" at 70-79. This means the API must be accessible online, not just locally.
+1. **Deployment to PythonAnywhere** (or similar) — the spec explicitly says "Hosted on an external web server, e.g. PythonAnywhere" at the 50-59 band, and "Professional deployment" at 70-79. This means the API must be accessible online, not just locally.
 
 ---
 
-## BAND 60–69 (Good) — MOSTLY ACHIEVED
+## BAND 60–69 (Good) — ALL ACHIEVED
 
 | Requirement | Status | Detail |
 |---|---|---|
-| Well-documented API with authentication | PARTIAL | Swagger UI exists with docstrings, but no auth (see above). Swagger lacks example request/response bodies and detailed error code documentation |
+| Well-documented API with authentication | DONE | Swagger UI with descriptions, examples, error codes on all endpoints. API key auth via `X-API-Key` header |
 | Effective error handling | DONE | All endpoints have try/except, graceful fallbacks on Gemini/PDF failure, proper HTTP codes for all error cases |
 | Clear stack choice justification | N/A (report) | — |
-| Evidence of testing approach | DONE | 42 tests across 6 files, in-memory SQLite, mocked externals |
+| Evidence of testing approach | DONE | 48 tests across 7 files, in-memory SQLite, mocked externals |
 | Consistent version control | DONE | Regular commits with descriptive messages |
 | GenAI used methodologically | DONE | Claude used as primary development tool |
 
-### What needs to be built:
-1. **Swagger polish** — the spec says "Clearly describes all available endpoints, parameters, and response formats" and "Includes example requests and expected responses" and "Documents authentication process and error codes where applicable". Currently:
-   - Endpoint docstrings exist but are minimal (1-line)
-   - No `response_description` on any endpoint
-   - No `responses={404: ..., 422: ...}` error documentation on endpoints
-   - No `example` values on Pydantic schema fields
-   - No `summary` vs `description` distinction on endpoints
-   - Search endpoint has no `response_model` (returns raw dict)
+**Nothing to do for this band.**
 
 ---
 
-## BAND 70–79 (Very Good) — 1 GAP
+## BAND 70–79 (Very Good) — 2 GAPS
 
 | Requirement | Status | Detail |
 |---|---|---|
 | Clean, modular code design | DONE | `app/routers/`, `app/schemas/`, `app/models/`, `app/agents/`, `app/services/` — one responsibility per file, type hints on everything, async throughout |
 | **Advanced features, e.g. MCP-compatible** | NOT DONE | No MCP server. The spec explicitly calls out "advanced features, e.g. MCP-compatible" at this band. An MCP server would expose the API tools to Claude Desktop or similar |
-| Comprehensive documentation | PARTIAL | Swagger UI auto-generated, but no README.md (pass/fail gate), no exported PDF |
+| Comprehensive documentation | DONE | README.md with setup instructions, Swagger UI polished with examples and error codes, OpenAPI spec exported as PDF (`docs/openapi.pdf`) |
 | Strong version-control discipline | DONE | Descriptive commit messages, incremental history |
-| Thorough testing demonstrated | DONE | 42 tests covering: happy path, invalid input (422), not found (404), external failure (500), graceful fallback, edge cases (message limits, duplicates, empty results) |
+| Thorough testing demonstrated | DONE | 48 tests covering: happy path, invalid input (422), not found (404), external failure (500), graceful fallback, auth (401), edge cases (message limits, duplicates, empty results) |
 | Professional deployment | NOT DONE | See 50-59 above |
 | Medium-level GenAI use | DONE | — |
 
@@ -84,43 +71,32 @@ Marks are cumulative — to score 90+ you must satisfy EVERY band below.
 
 ---
 
-## BAND 80–89 (Excellent) — 2 GAPS
+## BAND 80–89 (Excellent) — ALL ACHIEVED
 
 | Requirement | Status | Detail |
 |---|---|---|
 | Exemplary code quality and architecture | DONE | Clean separation of concerns, async throughout, type hints everywhere, Pydantic validation, SQLAlchemy ORM with mapped columns, graceful error handling patterns |
-| **Advanced security implementation** | NOT DONE | No auth (see above), no CORS configuration in `main.py`, no input sanitisation beyond Pydantic, no rate limiting headers. The spec says "Advanced security implementation" which goes beyond basic auth — think CORS, request validation, security headers |
-| Comprehensive testing suite | DONE | 42 tests, all external APIs mocked, covers happy path + error cases + edge cases + graceful degradation |
-| Creative data design | DONE | 3-agent LLM pipeline (classify→optimise→search→summarise→chat), PDF extraction, multi-turn conversation with history |
-| Excellent documentation | PARTIAL | See gaps above |
+| **Advanced security implementation** | DONE | API key auth with timing-safe comparison (`secrets.compare_digest`), CORS middleware with restricted origins/methods/headers, Trusted Host middleware. See `AUTHENTICATION.md` |
+| Comprehensive testing suite | DONE | 48 tests, all external APIs mocked, covers happy path + error cases + edge cases + graceful degradation + auth (401) |
+| Creative data design | DONE | 4-agent LLM pipeline (classify→optimise→search→summarise→chat→related), PDF extraction, multi-turn conversation with history |
+| Excellent documentation | DONE | README.md, Swagger UI with examples and error codes, OpenAPI PDF export |
 | High-level GenAI use | DONE | — |
 
-### What needs to be built:
-1. **CORS middleware** — add `CORSMiddleware` to `main.py`. Required both for security (80-89 band) and for the frontend to work.
-2. **Security hardening** — beyond auth:
-   - CORS with specific allowed origins
-   - Consider adding request size limits
-   - The Pydantic validation already handles input validation well
+**Nothing to do for this band.**
 
 ---
 
-## BAND 90–100 (Outstanding) — 3 GAPS
+## BAND 90–100 (Outstanding) — MOSTLY ACHIEVED
 
 | Requirement | Status | Detail |
 |---|---|---|
-| Exceptional originality and innovation | DONE | 3-agent LLM pipeline is genuinely novel — classify/optimise queries with one model, summarise with another, chat with a third. PDF extraction + automatic summarisation on save. Multi-turn conversation with history and limits |
-| **Novel data integration or features** | PARTIAL | Uses OpenAlex API (good), but could be strengthened with additional data sources or analytics features. Ideas: citation network data from OpenAlex, related papers endpoint, paper similarity, usage analytics |
-| **Publication-quality documentation** | NOT DONE | No README.md (pass/fail gate!), no API PDF export, Swagger needs polish (see 60-69) |
+| Exceptional originality and innovation | DONE | 4-agent LLM pipeline is genuinely novel — classify/optimise queries with one model, summarise with another, chat with a third, discover related papers with a fourth. PDF extraction + automatic summarisation on save. Multi-turn conversation with history and limits |
+| **Novel data integration or features** | DONE | Uses OpenAlex API (250M+ works), agent-powered related papers discovery via `GET /papers/{id}/related` |
+| **Publication-quality documentation** | DONE | README.md with setup instructions, Swagger UI polished with examples and error codes, OpenAPI spec exported as PDF (`docs/openapi.pdf`) |
 | Demonstrates genuine research curiosity | DONE | The entire project concept (agentic research assistant) demonstrates this |
-| **Creative application of GenAI** | DONE | 3 different Gemini models for 3 different tasks, structured JSON output from classifier, graceful fallback chains |
+| **Creative application of GenAI** | DONE | 4 Gemini agents for 4 different tasks, structured JSON output from classifier, graceful fallback chains |
 
-### What needs to be built:
-1. **README.md** — CRITICAL pass/fail gate. Must include: project overview, setup instructions, endpoint summary, how to run tests. Without this, the entire submission fails regardless of marks elsewhere.
-2. **API documentation PDF** — CRITICAL pass/fail gate. Export OpenAPI spec and/or Swagger UI to PDF. Must be in the repo and referenced in README.
-3. **Novel feature addition** — to truly hit 90+, consider adding something like:
-   - `GET /papers/{id}/related` — fetch related papers from OpenAlex using the saved paper's concepts
-   - Analytics endpoint — citation trends, field distribution of saved papers
-   - Export endpoint — export saved papers as BibTeX or CSV
+**Nothing to do for this band.**
 
 ---
 
@@ -129,37 +105,36 @@ Marks are cumulative — to score 90+ you must satisfy EVERY band below.
 | Gate | Status | Action |
 |---|---|---|
 | Public GitHub repo with visible commit history | DONE | — |
-| **README.md present** | NOT DONE | Must create with setup instructions and project overview |
-| **API documentation exported as PDF** | NOT DONE | Must export and add to repo |
+| **README.md present** | DONE | Includes setup instructions, endpoint summary, testing instructions |
+| **API documentation exported as PDF** | DONE | `docs/openapi.json` + `docs/openapi.pdf` in repo |
 | **Technical report with GenAI declaration** | N/A (non-code) | Written deliverable |
 | Code runs locally | DONE | — |
-| All tests pass | DONE | 42/42 passing |
+| All tests pass | DONE | 48/48 passing |
 
 ---
 
-## SUMMARY: WHAT TO BUILD (code only, priority order)
+## SUMMARY: WHAT'S LEFT TO BUILD (code only, priority order)
 
-### Critical (pass/fail gates)
-1. **README.md** — project overview, setup, endpoints, how to test
-2. **API docs PDF** — export OpenAPI spec to PDF, add to repo
+### Remaining Gaps
+1. **Deployment** — host on PythonAnywhere or similar (50-59, 70-79 bands)
+2. **MCP server** — expose API tools via Model Context Protocol (70-79 band)
+3. **Frontend** — simple UI for demo and presentation (search, save, library, chat)
 
-### High Priority (covers 50-59 through 80-89 bands)
-3. **API key authentication** — `app/auth.py`, dependency on all endpoints, `.env` config, tests
-4. **CORS middleware** — add to `main.py`
-5. **Swagger polish** — example values on schemas, error response docs on endpoints, response models on all endpoints
-6. **Deployment** — host on PythonAnywhere or similar
-
-### Medium Priority (strengthens 70-79 and 90-100)
-7. **MCP server** — expose API tools via Model Context Protocol
-8. **Novel feature** — related papers endpoint, analytics, or export
+### Written Deliverables (non-code)
+4. **Technical report** (max 5 pages) — stack justification, architecture, testing approach, limitations, GenAI declaration
+5. **Presentation slides** (PowerPoint, 5 min) — version control, API docs, technical highlights, live demo plan
+6. **GenAI conversation logs** — export and include Claude conversation examples
 
 ### Current Codebase Strengths (already scoring well)
 - Clean modular architecture (routers/schemas/models/agents/services)
 - Full CRUD with proper status codes
-- 3-agent LLM pipeline (novel, creative)
-- 42 tests with comprehensive coverage
+- 4-agent LLM pipeline (novel, creative)
+- 48 tests with comprehensive coverage
 - Async throughout, type hints everywhere
 - Graceful error handling and fallback chains
 - PDF extraction with fallback
 - Multi-turn chat with message limits
 - Pydantic validation on all inputs
+- API key auth + CORS + Trusted Host security
+- README.md + Swagger polish + OpenAPI PDF export
+- Related papers discovery (agent-powered semantic search)
