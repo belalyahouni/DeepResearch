@@ -4,49 +4,47 @@ from pydantic import BaseModel, Field
 
 
 class SearchResultItem(BaseModel):
-    """A single paper result from an OpenAlex search."""
-    openalex_id: str = Field(..., description="OpenAlex work ID")
-    doi: str | None = Field(None, description="Digital Object Identifier")
+    """A single paper result from the arXiv corpus vector search."""
+
+    arxiv_id: str = Field(..., description="arXiv paper ID")
     title: str = Field(..., description="Paper title")
     authors: str = Field(..., description="Comma-separated author names")
-    abstract: str | None = Field(None, description="Reconstructed abstract text")
+    abstract: str | None = Field(None, description="Paper abstract")
+    categories: str = Field(..., description="Space-separated arXiv categories")
     year: int | None = Field(None, description="Publication year")
-    url: str | None = Field(None, description="Landing page URL")
-    open_access_pdf_url: str | None = Field(None, description="Direct URL to the open-access PDF")
-    citation_count: int = Field(..., description="Number of citations")
-    relevance_score: float | None = Field(None, description="OpenAlex relevance score (semantic search only)")
+    doi: str | None = Field(None, description="Digital Object Identifier")
+    url: str = Field(..., description="arXiv URL")
+    similarity_score: float | None = Field(None, description="Cosine similarity score (0-1, higher is more similar)")
 
 
 class SearchResponse(BaseModel):
     """Response from the agentic search pipeline."""
+
     original_query: str = Field(..., description="The raw query submitted by the user")
-    field_id: int | None = Field(None, description="OpenAlex field ID detected by the classifier agent")
-    field: str | None = Field(None, description="Human-readable name of the detected academic field")
+    field: str | None = Field(None, description="Human-readable label of the detected arXiv AI/ML category")
     optimised_query: str = Field(..., description="Query rewritten by the optimiser agent for better retrieval")
     result_count: int = Field(..., description="Number of papers returned")
-    results: list[SearchResultItem] = Field(..., description="List of matching papers from OpenAlex")
+    results: list[SearchResultItem] = Field(..., description="List of matching papers from the arXiv corpus")
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {
                     "original_query": "KV cache optimisation for transformers",
-                    "field_id": 154945302,
-                    "field": "Artificial Intelligence",
+                    "field": "Machine Learning",
                     "optimised_query": "key-value cache memory optimisation transformer language models",
                     "result_count": 1,
                     "results": [
                         {
-                            "openalex_id": "https://openalex.org/W4415109130",
-                            "doi": "https://doi.org/10.48550/arxiv.2506.13541",
-                            "title": "Mixture of Weight-shared Heterogeneous Group Attention Experts for Dynamic Token-wise KV Optimization",
-                            "authors": "Guoqiang Song, D. Z. Liao, Yijiao Zhao, Kejiang Ye, Chunxiang Xu, Xiang Gao",
-                            "abstract": "Transformer models face scalability challenges in causal language modeling (CLM) due to inefficient memory allocation for growing key-value (KV) caches...",
-                            "year": 2025,
-                            "url": "http://arxiv.org/abs/2506.13541",
-                            "open_access_pdf_url": "https://arxiv.org/pdf/2506.13541",
-                            "citation_count": 0,
-                            "relevance_score": 0.896,
+                            "arxiv_id": "1706.03762",
+                            "title": "Attention Is All You Need",
+                            "authors": "Ashish Vaswani, Noam Shazeer",
+                            "abstract": "The dominant sequence transduction models...",
+                            "categories": "cs.CL cs.LG",
+                            "year": 2017,
+                            "doi": None,
+                            "url": "https://arxiv.org/abs/1706.03762",
+                            "similarity_score": 0.92,
                         }
                     ],
                 }

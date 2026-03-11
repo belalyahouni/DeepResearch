@@ -1,6 +1,6 @@
 # DeepResearch API
 
-An agentic research assistant API for discovering, saving, and interacting with academic papers. Features a novel 3-agent pipeline powered by Google Gemini, with paper discovery via OpenAlex semantic search.
+An agentic research assistant API for discovering and exploring AI/ML academic papers. Features a novel 3-agent pipeline (classifier → query optimiser → BGE vector search) powered by Google Gemini, over a local arXiv corpus of ~521k papers.
 
 Built for COMP3011 coursework (University of Leeds).
 
@@ -12,22 +12,25 @@ Built for COMP3011 coursework (University of Leeds).
 | Framework | FastAPI |
 | Database | SQLite (SQLAlchemy async ORM) |
 | Migrations | Alembic |
+| Vector DB | ChromaDB (persistent, cosine similarity) |
+| Embeddings | `BAAI/bge-base-en-v1.5` (768-dim, MPS-accelerated) |
 | LLM | Google Gemini (`google-genai` SDK) |
-| Papers | OpenAlex API (semantic search) |
-| PDF Parsing | PyMuPDF (`fitz`) |
-| HTTP Client | `httpx` (async) |
+| Corpus | arXiv AI/ML papers (HuggingFace dataset) |
+| MCP | FastMCP (Claude Desktop integration) |
+| Rate Limiting | slowapi (per-IP) |
 | Testing | pytest + pytest-asyncio |
 
 ## Architecture
 
-The API uses a **3-agent pipeline** powered by Google Gemini:
+The API is built around a **3-stage agentic pipeline**:
 
-1. **Classifier + Optimiser Agent** (`gemini-2.5-flash-lite`) — classifies the user's query into an academic field and rewrites it for optimal retrieval.
-2. **Summariser Agent** (`gemini-2.5-pro`) — generates structured summaries of paper abstracts or full texts.
-3. **Chat Agent** (`gemini-2.5-flash`) — answers questions about a saved paper using its full text as context.
-4. **Related Papers Agent** (`gemini-2.5-flash-lite`) — generates semantic search queries from a saved paper to discover related work via OpenAlex (250M+ works).
+1. **Classifier Agent** (`gemini-2.5-flash-lite`) — classifies the user's natural language query into an arXiv AI/ML category (`cs.AI`, `cs.LG`, `cs.CL`, `cs.CV`, etc.).
+2. **Optimiser Agent** (`gemini-2.5-flash-lite`) — rewrites the query into precise academic retrieval terms for better vector search results.
+3. **BGE Vector Search** — embeds the optimised query with `BAAI/bge-base-en-v1.5` and performs cosine similarity search over ChromaDB, returning ranked results from the arXiv corpus.
 
-When a paper is saved, the system automatically extracts the full text from the open-access PDF (via PyMuPDF) and generates an AI summary — both best-effort, never blocking the save operation.
+Summarisation is handled separately by a **Summariser Agent** (`gemini-2.5-pro`). All Gemini calls have graceful fallbacks — the pipeline degrades safely if the LLM is unavailable.
+
+Community interaction tracking is automatic: any paper accessed via lookup, summarisation, or related-papers search is recorded in a community index, enabling discovery of trending papers.
 
 ## Setup
 
@@ -45,13 +48,16 @@ pip install -r requirements.txt
 
 # Configure environment variables
 cp .env.example .env
-# Edit .env and add your keys:
+# Edit .env and set:
 #   GEMINI_API_KEY=your-gemini-key
-#   OPEN_ALEX_API_KEY=your-openalex-key (optional)
 #   API_KEY=your-api-key
 
 # Run database migrations
 alembic upgrade head
+
+# (Optional) Ingest the arXiv corpus into SQLite + ChromaDB
+python scripts/ingest_arxiv.py --limit 10000   # quick test run
+python scripts/ingest_arxiv.py                  # full ~521k papers (~1hr on Apple Silicon)
 
 # Start the server
 uvicorn app.main:app --reload
@@ -61,33 +67,45 @@ The API will be available at `http://localhost:8000`. Interactive documentation 
 
 ## API Endpoints
 
-All endpoints (except `/health`) require the `X-API-Key` header.
+All endpoints except `/health` require the `X-API-Key` header.
 
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/health` | Health check |
-| GET | `/search?query=...` | Agentic search: classify → optimise → semantic search |
-| POST | `/summarise` | Summarise any academic text |
-| POST | `/papers` | Save paper (auto-extracts PDF + generates summary) |
-| GET | `/papers` | List saved papers (`?tags=` filter) |
-| GET | `/papers/{id}` | Get a saved paper |
-| PUT | `/papers/{id}` | Update tags/notes |
-| DELETE | `/papers/{id}` | Remove paper |
-| GET | `/papers/{id}/related` | Find related papers (agent-powered semantic search) |
+| GET | `/search?query=...` | Classify → optimise → BGE vector search over arXiv corpus |
+| POST | `/summarise` | Summarise any academic text via Gemini. Rate limited 5/min |
+| GET | `/papers/{arxiv_id}` | Get a paper from the corpus by arXiv ID |
+| GET | `/papers/{arxiv_id}/related` | Find related papers via BGE vector similarity |
+| GET | `/community` | List most popular papers ranked by interaction count |
+| GET | `/community/{arxiv_id}` | Get community interaction stats for a specific paper |
+| POST | `/papers/{arxiv_id}/notes` | Add a public note to a paper. Rate limited 10/min |
+| GET | `/papers/{arxiv_id}/notes` | List all public notes on a paper |
+| PATCH | `/notes/{id}` | Update a note by ID. Rate limited 10/min |
+| DELETE | `/notes/{id}` | Delete a note by ID |
 
 ## Authentication
 
-All endpoints except `/health` and `/docs` are protected by API key authentication. Include the key in the `X-API-Key` header:
+All endpoints except `/health` and `/docs` require API key authentication via the `X-API-Key` header:
 
 ```bash
-curl -H "X-API-Key: your-key" http://localhost:8000/papers
+curl -H "X-API-Key: your-key" http://localhost:8000/search?query=transformers
 ```
 
 The Swagger UI at `/docs` includes an **Authorise** button for interactive testing.
 
+## Running Tests
+
+Tests use an in-memory SQLite database and mock all external APIs (Gemini, ChromaDB).
+
+```bash
+pytest tests/ -v
+```
+
+38 tests across 7 test files covering: happy paths, validation errors (422), not found (404), external service failures (500), rate limiting, and authentication (401).
+
 ## MCP Server (Claude Desktop)
 
-The project also includes an MCP (Model Context Protocol) server for integration with Claude Desktop. It exposes the same functionality as the REST API — search, save, summarise, chat, and related papers — as MCP tools and resources.
+The project exposes an MCP (Model Context Protocol) server that gives Claude Desktop direct access to the same pipeline — no HTTP calls, same agents and database.
 
 ### Setup
 
@@ -110,13 +128,18 @@ Restart Claude Desktop. The tools will appear in the tools menu.
 
 | Tool | Description |
 |---|---|
-| `search_papers` | Agentic classify + optimise + semantic search |
+| `search_papers` | Agentic classify + optimise + BGE vector search |
 | `summarise_text` | Gemini-powered summarisation |
-| `save_paper` | Save with auto PDF extraction + summary |
-| `update_paper` | Update tags/notes |
-| `delete_paper` | Remove from library |
-| `chat_with_paper` | Stateless Q&A about a saved paper |
-| `find_related_papers` | Agent-powered related paper discovery |
+| `find_related_papers` | BGE vector similarity search for related papers |
+| `get_community_papers` | List trending papers ranked by interaction count |
+| `get_paper_notes` | Retrieve all public notes for a paper |
+
+### MCP Resources
+
+| URI | Description |
+|---|---|
+| `arxiv://{arxiv_id}` | Full paper details (tracks community interaction) |
+| `arxiv://stats` | Corpus stats (total papers, year range) |
 
 ### Testing the MCP Server
 
@@ -125,16 +148,6 @@ mcp dev mcp_server.py
 ```
 
 This opens the MCP Inspector — a web UI for calling tools and reading resources interactively.
-
-## Testing
-
-Tests use an in-memory SQLite database and mock all external APIs (Gemini, OpenAlex).
-
-```bash
-pytest tests/ -v
-```
-
-38 tests across 6 test files covering: happy paths, validation errors (422), not found (404), duplicate detection (409), external service failures (500), and authentication (401).
 
 ## API Documentation
 

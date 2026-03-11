@@ -6,12 +6,14 @@ from pydantic import BaseModel, Field
 class SummariseRequest(BaseModel):
     """Request body for previewing a summary."""
     text: str = Field(..., min_length=1, description="Text to summarise (abstract or full paper text)")
+    arxiv_id: str | None = Field(None, description="Optional arXiv ID — if provided, records this interaction in the community index")
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {
-                    "text": "We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely..."
+                    "text": "We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely...",
+                    "arxiv_id": "1706.03762"
                 }
             ]
         }

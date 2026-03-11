@@ -1,51 +1,36 @@
-"""Tests for the search endpoint — mocks external APIs."""
+"""Tests for the search endpoint — mocks vector search, uses test DB for metadata."""
 
 from unittest.mock import AsyncMock, patch
 
 from httpx import AsyncClient
 
 MOCK_AGENT_RESULT = {
-    "field_id": 17,
-    "field": "Computer Science",
+    "category": "cs.CL",
+    "field": "Computation and Language",
     "optimised_query": "Transformer attention mechanisms",
 }
 
-MOCK_PAPERS = [
-    {
-        "openalex_id": "https://openalex.org/W123",
-        "doi": "https://doi.org/10.1234/test",
-        "title": "Attention Is All You Need",
-        "authors": "Vaswani et al.",
-        "abstract": "We propose a new architecture...",
-        "year": 2017,
-        "url": "https://arxiv.org/abs/1706.03762",
-        "open_access_pdf_url": "https://arxiv.org/pdf/1706.03762",
-        "citation_count": 100000,
-        "relevance_score": 1.5,
-    },
+MOCK_VECTOR_HITS = [
+    {"arxiv_id": "1706.03762", "distance": 0.08, "similarity_score": 0.92},
 ]
 
 
-@patch("app.routers.search.search_papers", new_callable=AsyncMock, return_value=MOCK_PAPERS)
+@patch("app.routers.search.search_by_query", return_value=MOCK_VECTOR_HITS)
 @patch("app.routers.search.classify_and_optimise", new_callable=AsyncMock, return_value=MOCK_AGENT_RESULT)
-async def test_search_full_pipeline(mock_agent, mock_search, client: AsyncClient):
+async def test_search_full_pipeline(mock_agent, mock_search, client: AsyncClient, sample_papers):
     response = await client.get("/search?query=attention in transformers")
     assert response.status_code == 200
     data = response.json()
 
     assert data["original_query"] == "attention in transformers"
-    assert data["field_id"] == 17
-    assert data["field"] == "Computer Science"
+    assert data["field"] == "Computation and Language"
     assert data["optimised_query"] == "Transformer attention mechanisms"
     assert data["result_count"] == 1
-    assert data["results"][0]["title"] == "Attention Is All You Need"
+    assert data["results"][0]["arxiv_id"] == "1706.03762"
+    assert data["results"][0]["similarity_score"] == 0.92
 
-    # Verify agent was called with original query
     mock_agent.assert_called_once_with("attention in transformers")
-    # Verify search was called with optimised query and field
-    mock_search.assert_called_once_with(
-        "Transformer attention mechanisms", semantic=True, field_id=17
-    )
+    mock_search.assert_called_once_with("Transformer attention mechanisms")
 
 
 async def test_search_empty_query_returns_422(client: AsyncClient):
@@ -58,24 +43,22 @@ async def test_search_missing_query_returns_422(client: AsyncClient):
     assert response.status_code == 422
 
 
-@patch("app.routers.search.search_papers", new_callable=AsyncMock, side_effect=RuntimeError("API down"))
+@patch("app.routers.search.search_by_query", side_effect=RuntimeError("ChromaDB down"))
 @patch("app.routers.search.classify_and_optimise", new_callable=AsyncMock, return_value=MOCK_AGENT_RESULT)
-async def test_search_openalex_failure_returns_500(mock_agent, mock_search, client: AsyncClient):
+async def test_search_vector_failure_returns_500(mock_agent, mock_search, client: AsyncClient):
     response = await client.get("/search?query=test")
     assert response.status_code == 500
-    assert "API down" in response.json()["detail"]
 
 
-@patch("app.routers.search.search_papers", new_callable=AsyncMock, return_value=MOCK_PAPERS)
+@patch("app.routers.search.search_by_query", return_value=MOCK_VECTOR_HITS)
 @patch(
     "app.routers.search.classify_and_optimise",
     new_callable=AsyncMock,
-    return_value={"field_id": None, "field": None, "optimised_query": "fallback query", "error": "Gemini failed"},
+    return_value={"category": None, "field": None, "optimised_query": "fallback query", "error": "Gemini failed"},
 )
-async def test_search_gemini_fallback(mock_agent, mock_search, client: AsyncClient):
-    """When Gemini fails, search should still work with original-ish query and no field filter."""
+async def test_search_gemini_fallback(mock_agent, mock_search, client: AsyncClient, sample_papers):
     response = await client.get("/search?query=test")
     assert response.status_code == 200
     data = response.json()
-    assert data["field_id"] is None
+    assert data["field"] is None
     assert data["result_count"] == 1

@@ -1,1 +1,1185 @@
-{"openapi":"3.1.0","info":{"title":"DeepResearch API","description":"An agentic research assistant API for discovering, saving, and interacting with academic papers. Features a novel 3-agent pipeline (classifier + optimiser → summariser → chat) powered by Google Gemini, with paper discovery via OpenAlex semantic search. Built with FastAPI, SQLAlchemy, and SQLite.","version":"1.0.0"},"paths":{"/papers":{"post":{"tags":["Papers"],"summary":"Save a paper to the library","description":"Save a paper to the library. Automatically extracts full text from the\nPDF (if available) and generates an AI summary via the Gemini summariser.\nBoth extraction and summarisation are best-effort and never block the save.","operationId":"create_paper_papers_post","security":[{"APIKeyHeader":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PaperCreate"}}}},"responses":{"201":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/PaperResponse"}}}},"401":{"description":"Missing or invalid API key"},"409":{"description":"Paper with this OpenAlex ID already saved"},"422":{"description":"Validation error — missing required fields"},"500":{"description":"Internal server error"}}},"get":{"tags":["Papers"],"summary":"List saved papers","description":"List all saved papers, optionally filtered by tag. Results are ordered\nby creation date (newest first).","operationId":"list_papers_papers_get","security":[{"APIKeyHeader":[]}],"parameters":[{"name":"tags","in":"query","required":false,"schema":{"anyOf":[{"type":"string"},{"type":"null"}],"description":"Filter by tag (substring match)","title":"Tags"},"description":"Filter by tag (substring match)"}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/PaperResponse"},"title":"Response List Papers Papers Get"}}}},"401":{"description":"Missing or invalid API key"},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/papers/{paper_id}":{"get":{"tags":["Papers"],"summary":"Get a saved paper","description":"Get a specific saved paper by its database ID. Returns the full paper\nrecord including extracted text and AI summary.","operationId":"get_paper_papers__paper_id__get","security":[{"APIKeyHeader":[]}],"parameters":[{"name":"paper_id","in":"path","required":true,"schema":{"type":"integer","title":"Paper Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/PaperResponse"}}}},"401":{"description":"Missing or invalid API key"},"404":{"description":"Paper not found"},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}},"put":{"tags":["Papers"],"summary":"Update paper tags or notes","description":"Update the tags or notes on a saved paper. Only fields included in the\nrequest body are updated; omitted fields remain unchanged.","operationId":"update_paper_papers__paper_id__put","security":[{"APIKeyHeader":[]}],"parameters":[{"name":"paper_id","in":"path","required":true,"schema":{"type":"integer","title":"Paper Id"}}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PaperUpdate"}}}},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/PaperResponse"}}}},"401":{"description":"Missing or invalid API key"},"404":{"description":"Paper not found"},"422":{"description":"Validation error"}}},"delete":{"tags":["Papers"],"summary":"Delete a saved paper","description":"Remove a paper from the library. This also deletes any associated\nconversation history.","operationId":"delete_paper_papers__paper_id__delete","security":[{"APIKeyHeader":[]}],"parameters":[{"name":"paper_id","in":"path","required":true,"schema":{"type":"integer","title":"Paper Id"}}],"responses":{"204":{"description":"Successful Response"},"401":{"description":"Missing or invalid API key"},"404":{"description":"Paper not found"},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/papers/{paper_id}/related":{"get":{"tags":["Papers"],"summary":"Find related papers","description":"Find papers related to a saved paper by querying OpenAlex using the\npaper's concepts. Returns up to 5 related works, excluding the original.","operationId":"related_papers_papers__paper_id__related_get","security":[{"APIKeyHeader":[]}],"parameters":[{"name":"paper_id","in":"path","required":true,"schema":{"type":"integer","title":"Paper Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/SearchResultItem"},"title":"Response Related Papers Papers  Paper Id  Related Get"}}}},"401":{"description":"Missing or invalid API key"},"404":{"description":"Paper not found"},"500":{"description":"OpenAlex API failure"},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/search":{"get":{"tags":["Search"],"summary":"Search for academic papers","description":"Run the full agentic search pipeline: classify the academic field,\noptimise the query for better retrieval, then perform a semantic search\nvia the OpenAlex API. Returns both the agent analysis and search results.","operationId":"search_search_get","security":[{"APIKeyHeader":[]}],"parameters":[{"name":"query","in":"query","required":true,"schema":{"type":"string","minLength":1,"description":"Search query for academic papers","title":"Query"},"description":"Search query for academic papers"}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/SearchResponse"}}}},"401":{"description":"Missing or invalid API key"},"422":{"description":"Validation error — query parameter is required"},"500":{"description":"OpenAlex API or Gemini agent failure"}}}},"/summarise":{"post":{"tags":["Summarisation"],"summary":"Summarise academic text","description":"Summarise any academic text using the Gemini summariser agent.\nPass an abstract for a quick preview, or the full paper text for a\ncomprehensive summary.","operationId":"summarise_summarise_post","requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/SummariseRequest"}}},"required":true},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/SummariseResponse"}}}},"401":{"description":"Missing or invalid API key"},"422":{"description":"Validation error — text field is required and must not be empty"},"500":{"description":"Gemini summarisation agent failure"}},"security":[{"APIKeyHeader":[]}]}},"/papers/{paper_id}/chat":{"post":{"tags":["Chat"],"summary":"Send a chat message","description":"Send a message about a saved paper and receive an AI response. The chat\nagent uses the paper's full text (or abstract) as context. Messages are\npersisted to maintain multi-turn conversation history.","operationId":"send_message_papers__paper_id__chat_post","security":[{"APIKeyHeader":[]}],"parameters":[{"name":"paper_id","in":"path","required":true,"schema":{"type":"integer","title":"Paper Id"}}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/ChatRequest"}}}},"responses":{"201":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/ChatResponse"}}}},"401":{"description":"Missing or invalid API key"},"404":{"description":"Paper not found"},"409":{"description":"Conversation message limit reached"},"500":{"description":"Gemini chat agent failure"},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}},"get":{"tags":["Chat"],"summary":"Get conversation history","description":"Get the full conversation history for a paper, ordered chronologically.","operationId":"get_conversation_papers__paper_id__chat_get","security":[{"APIKeyHeader":[]}],"parameters":[{"name":"paper_id","in":"path","required":true,"schema":{"type":"integer","title":"Paper Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/ConversationResponse"}}}},"401":{"description":"Missing or invalid API key"},"404":{"description":"Paper not found"},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}},"delete":{"tags":["Chat"],"summary":"Clear conversation history","description":"Clear all conversation messages for a paper, allowing a fresh start.","operationId":"clear_conversation_papers__paper_id__chat_delete","security":[{"APIKeyHeader":[]}],"parameters":[{"name":"paper_id","in":"path","required":true,"schema":{"type":"integer","title":"Paper Id"}}],"responses":{"204":{"description":"Successful Response"},"401":{"description":"Missing or invalid API key"},"404":{"description":"Paper not found"},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/health":{"get":{"tags":["Utility"],"summary":"Health check","description":"Check the API is running and responsive.","operationId":"health_check_health_get","responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}}}}}},"components":{"schemas":{"ChatMessageResponse":{"properties":{"role":{"type":"string","title":"Role","description":"Message author: 'user' or 'assistant'"},"message":{"type":"string","title":"Message","description":"Message content"},"created_at":{"type":"string","format":"date-time","title":"Created At","description":"When the message was sent"}},"type":"object","required":["role","message","created_at"],"title":"ChatMessageResponse","description":"A single message in the conversation."},"ChatRequest":{"properties":{"message":{"type":"string","minLength":1,"title":"Message","description":"User message to send to the chat agent"}},"type":"object","required":["message"],"title":"ChatRequest","description":"Request body for sending a chat message.","examples":[{"message":"What is the main contribution of this paper?"}]},"ChatResponse":{"properties":{"role":{"type":"string","title":"Role","description":"Always 'assistant' for chat responses"},"message":{"type":"string","title":"Message","description":"AI-generated response about the paper"}},"type":"object","required":["role","message"],"title":"ChatResponse","description":"Response after sending a chat message.","examples":[{"message":"The main contribution of this paper is the Transformer architecture, which replaces recurrence with self-attention for sequence modelling.","role":"assistant"}]},"ConversationResponse":{"properties":{"paper_id":{"type":"integer","title":"Paper Id","description":"ID of the paper this conversation belongs to"},"messages":{"items":{"$ref":"#/components/schemas/ChatMessageResponse"},"type":"array","title":"Messages","description":"Ordered list of messages in the conversation"}},"type":"object","required":["paper_id","messages"],"title":"ConversationResponse","description":"Full conversation history for a paper.","examples":[{"messages":[{"created_at":"2025-01-15T10:30:00","message":"What is the main contribution?","role":"user"},{"created_at":"2025-01-15T10:30:01","message":"The main contribution is the Transformer architecture.","role":"assistant"}],"paper_id":1}]},"HTTPValidationError":{"properties":{"detail":{"items":{"$ref":"#/components/schemas/ValidationError"},"type":"array","title":"Detail"}},"type":"object","title":"HTTPValidationError"},"PaperCreate":{"properties":{"openalex_id":{"type":"string","title":"Openalex Id","description":"OpenAlex work ID (e.g. https://openalex.org/W2963403868)"},"title":{"type":"string","title":"Title","description":"Paper title"},"authors":{"type":"string","title":"Authors","description":"Comma-separated author names"},"abstract":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Abstract","description":"Paper abstract text"},"year":{"anyOf":[{"type":"integer"},{"type":"null"}],"title":"Year","description":"Publication year"},"url":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Url","description":"Landing page URL"},"open_access_pdf_url":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Open Access Pdf Url","description":"Direct URL to the open-access PDF"},"citation_count":{"type":"integer","title":"Citation Count","description":"Number of citations","default":0},"tags":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Tags","description":"Comma-separated tags for organisation"},"notes":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Notes","description":"Personal notes about the paper"}},"type":"object","required":["openalex_id","title","authors"],"title":"PaperCreate","description":"Schema for saving a paper to the library.","examples":[{"abstract":"The dominant sequence transduction models are based on complex recurrent or convolutional neural networks...","authors":"Ashish Vaswani, Noam Shazeer, Niki Parmar","citation_count":100000,"notes":"Foundational transformer paper","open_access_pdf_url":"https://arxiv.org/pdf/1706.03762","openalex_id":"https://openalex.org/W2963403868","tags":"transformers, attention, NLP","title":"Attention Is All You Need","url":"https://arxiv.org/abs/1706.03762","year":2017}]},"PaperResponse":{"properties":{"id":{"type":"integer","title":"Id","description":"Internal database ID"},"openalex_id":{"type":"string","title":"Openalex Id","description":"OpenAlex work ID"},"title":{"type":"string","title":"Title","description":"Paper title"},"authors":{"type":"string","title":"Authors","description":"Comma-separated author names"},"abstract":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Abstract","description":"Paper abstract text"},"year":{"anyOf":[{"type":"integer"},{"type":"null"}],"title":"Year","description":"Publication year"},"url":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Url","description":"Landing page URL"},"open_access_pdf_url":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Open Access Pdf Url","description":"Direct URL to the open-access PDF"},"citation_count":{"type":"integer","title":"Citation Count","description":"Number of citations"},"tags":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Tags","description":"Comma-separated tags"},"notes":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Notes","description":"Personal notes"},"full_text":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Full Text","description":"Extracted full text from the PDF (if available)"},"summary":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Summary","description":"AI-generated summary of the paper"},"created_at":{"type":"string","format":"date-time","title":"Created At","description":"When the paper was saved"},"updated_at":{"type":"string","format":"date-time","title":"Updated At","description":"When the paper was last modified"}},"type":"object","required":["id","openalex_id","title","authors","citation_count","created_at","updated_at"],"title":"PaperResponse","description":"Schema for returning a saved paper.","examples":[{"abstract":"The dominant sequence transduction models are based on complex recurrent or convolutional neural networks...","authors":"Ashish Vaswani, Noam Shazeer, Niki Parmar","citation_count":100000,"created_at":"2025-01-15T10:30:00","full_text":"We propose a new simple network architecture, the Transformer...","id":1,"notes":"Foundational paper","open_access_pdf_url":"https://arxiv.org/pdf/1706.03762","openalex_id":"https://openalex.org/W2963403868","summary":"This paper introduces the Transformer architecture...","tags":"transformers, attention","title":"Attention Is All You Need","updated_at":"2025-01-15T10:30:00","url":"https://arxiv.org/abs/1706.03762","year":2017}]},"PaperUpdate":{"properties":{"tags":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Tags","description":"New comma-separated tags (replaces existing)"},"notes":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Notes","description":"Updated personal notes"}},"type":"object","title":"PaperUpdate","description":"Schema for updating a saved paper (tags and notes only).","examples":[{"notes":"Foundational paper — introduced the transformer architecture","tags":"deep learning, transformers"}]},"SearchResponse":{"properties":{"original_query":{"type":"string","title":"Original Query","description":"The raw query submitted by the user"},"field_id":{"anyOf":[{"type":"integer"},{"type":"null"}],"title":"Field Id","description":"OpenAlex field ID detected by the classifier agent"},"field":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Field","description":"Human-readable name of the detected academic field"},"optimised_query":{"type":"string","title":"Optimised Query","description":"Query rewritten by the optimiser agent for better retrieval"},"result_count":{"type":"integer","title":"Result Count","description":"Number of papers returned"},"results":{"items":{"$ref":"#/components/schemas/SearchResultItem"},"type":"array","title":"Results","description":"List of matching papers from OpenAlex"}},"type":"object","required":["original_query","optimised_query","result_count","results"],"title":"SearchResponse","description":"Response from the agentic search pipeline.","examples":[{"field":"Artificial Intelligence","field_id":154945302,"optimised_query":"transformer architecture self-attention mechanism neural networks","original_query":"how do transformers work","result_count":1,"results":[{"abstract":"The dominant sequence transduction models...","authors":"Ashish Vaswani, Noam Shazeer","citation_count":100000,"doi":"https://doi.org/10.48550/arXiv.1706.03762","open_access_pdf_url":"https://arxiv.org/pdf/1706.03762","openalex_id":"https://openalex.org/W2963403868","relevance_score":0.95,"title":"Attention Is All You Need","url":"https://arxiv.org/abs/1706.03762","year":2017}]}]},"SearchResultItem":{"properties":{"openalex_id":{"type":"string","title":"Openalex Id","description":"OpenAlex work ID"},"doi":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Doi","description":"Digital Object Identifier"},"title":{"type":"string","title":"Title","description":"Paper title"},"authors":{"type":"string","title":"Authors","description":"Comma-separated author names"},"abstract":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Abstract","description":"Reconstructed abstract text"},"year":{"anyOf":[{"type":"integer"},{"type":"null"}],"title":"Year","description":"Publication year"},"url":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Url","description":"Landing page URL"},"open_access_pdf_url":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Open Access Pdf Url","description":"Direct URL to the open-access PDF"},"citation_count":{"type":"integer","title":"Citation Count","description":"Number of citations"},"relevance_score":{"anyOf":[{"type":"number"},{"type":"null"}],"title":"Relevance Score","description":"OpenAlex relevance score (semantic search only)"}},"type":"object","required":["openalex_id","title","authors","citation_count"],"title":"SearchResultItem","description":"A single paper result from an OpenAlex search."},"SummariseRequest":{"properties":{"text":{"type":"string","minLength":1,"title":"Text","description":"Text to summarise (abstract or full paper text)"}},"type":"object","required":["text"],"title":"SummariseRequest","description":"Request body for previewing a summary.","examples":[{"text":"We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely..."}]},"SummariseResponse":{"properties":{"summary":{"type":"string","title":"Summary","description":"AI-generated summary of the input text"}},"type":"object","required":["summary"],"title":"SummariseResponse","description":"Response from the summarise preview endpoint.","examples":[{"summary":"This paper introduces the Transformer, a novel architecture that relies entirely on self-attention mechanisms. It achieves state-of-the-art results on machine translation benchmarks while being more parallelisable and requiring significantly less training time."}]},"ValidationError":{"properties":{"loc":{"items":{"anyOf":[{"type":"string"},{"type":"integer"}]},"type":"array","title":"Location"},"msg":{"type":"string","title":"Message"},"type":{"type":"string","title":"Error Type"},"input":{"title":"Input"},"ctx":{"type":"object","title":"Context"}},"type":"object","required":["loc","msg","type"],"title":"ValidationError"}},"securitySchemes":{"APIKeyHeader":{"type":"apiKey","in":"header","name":"X-API-Key"}}},"tags":[{"name":"Search","description":"Agentic search pipeline: classify the academic field, optimise the query, and retrieve papers from OpenAlex via semantic search."},{"name":"Papers","description":"CRUD operations for the saved paper library — save, list, retrieve, update, and delete academic papers."},{"name":"Summarisation","description":"AI-powered summarisation of academic text using the Gemini summariser agent."},{"name":"Chat","description":"Multi-turn conversation about a saved paper, powered by the Gemini chat agent."},{"name":"Utility","description":"System health and status checks."}]}
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DeepResearch API",
+    "description": "An agentic research assistant API for discovering and exploring AI/ML academic papers. Features a 3-agent pipeline (classifier \u2192 query optimiser \u2192 BGE vector search) powered by Google Gemini, with `BAAI/bge-base-en-v1.5` cosine similarity search over a local arXiv AI/ML corpus (~521k papers). Summarisation via Gemini. Built with FastAPI, SQLAlchemy, ChromaDB, and SQLite. Authenticate via the `X-API-Key` header on all endpoints except `/health`.",
+    "version": "2.0.0"
+  },
+  "paths": {
+    "/papers/{arxiv_id}": {
+      "get": {
+        "tags": [
+          "Papers"
+        ],
+        "summary": "Get a paper from the corpus",
+        "description": "Look up an arXiv paper by its ID from the local AI/ML corpus.",
+        "operationId": "get_paper_papers__arxiv_id__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "arxiv_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Arxiv Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArxivPaperResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "404": {
+            "description": "Paper not found in the corpus"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/papers/{arxiv_id}/related": {
+      "get": {
+        "tags": [
+          "Papers"
+        ],
+        "summary": "Find related papers",
+        "description": "Find papers related to the given arXiv paper using BGE vector similarity.\nReturns up to 5 related papers from the corpus.",
+        "operationId": "related_papers_papers__arxiv_id__related_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "arxiv_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Arxiv Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ArxivPaperResponse"
+                  },
+                  "title": "Response Related Papers Papers  Arxiv Id  Related Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "404": {
+            "description": "Paper not found in the corpus or vector store"
+          },
+          "500": {
+            "description": "Vector search failure"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/search": {
+      "get": {
+        "tags": [
+          "Search"
+        ],
+        "summary": "Search for academic papers",
+        "description": "Run the full agentic search pipeline: classify the arXiv AI/ML category,\noptimise the query, then perform BGE vector similarity search\nover the local arXiv AI/ML corpus.",
+        "operationId": "search_search_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Search query for academic papers",
+              "title": "Query"
+            },
+            "description": "Search query for academic papers"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "422": {
+            "description": "Validation error \u2014 query parameter is required"
+          },
+          "500": {
+            "description": "Vector search or Gemini agent failure"
+          }
+        }
+      }
+    },
+    "/summarise": {
+      "post": {
+        "tags": [
+          "Summarisation"
+        ],
+        "summary": "Summarise academic text",
+        "description": "Summarise any academic text using the Gemini summariser agent.\nPass an abstract for a quick preview, or the full paper text for a\ncomprehensive summary. Provide arxiv_id to record this interaction in\nthe community index.",
+        "operationId": "summarise_summarise_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SummariseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummariseResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "422": {
+            "description": "Validation error \u2014 text field is required and must not be empty"
+          },
+          "429": {
+            "description": "Rate limit exceeded \u2014 max 5 requests per minute"
+          },
+          "500": {
+            "description": "Gemini summarisation agent failure"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/community": {
+      "get": {
+        "tags": [
+          "Community"
+        ],
+        "summary": "List most popular papers",
+        "description": "Returns papers ranked by community interaction count. A paper enters this index the first time it is directly accessed or summarised. Count increments on: direct paper lookup, summarisation, and related-papers queries.",
+        "operationId": "list_community_papers_community_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Number of papers to return (max 100)",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Number of papers to return (max 100)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunityListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/community/{arxiv_id}": {
+      "get": {
+        "tags": [
+          "Community"
+        ],
+        "summary": "Get community stats for a paper",
+        "description": "Returns the interaction count and last activity timestamp for a specific paper. A paper only appears here once it has been accessed via GET /papers/{arxiv_id}, POST /summarise (with arxiv_id), or GET /papers/{arxiv_id}/related.",
+        "operationId": "get_community_paper_community__arxiv_id__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "arxiv_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Arxiv Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunityPaperResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "404": {
+            "description": "Paper has not been interacted with yet \u2014 not in the community index"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/papers/{arxiv_id}/notes": {
+      "post": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "Add a public note to a paper",
+        "description": "Add a public note to an arXiv paper. Notes are visible to all API consumers and agents.",
+        "operationId": "create_note_papers__arxiv_id__notes_post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "arxiv_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Arxiv Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "404": {
+            "description": "Paper not found in corpus"
+          },
+          "422": {
+            "description": "Validation error \u2014 content is required"
+          },
+          "429": {
+            "description": "Rate limit exceeded \u2014 max 10 notes per minute"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "Get all notes for a paper",
+        "description": "Retrieve all public notes attached to a specific arXiv paper.",
+        "operationId": "list_notes_papers__arxiv_id__notes_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "arxiv_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Arxiv Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NoteResponse"
+                  },
+                  "title": "Response List Notes Papers  Arxiv Id  Notes Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "404": {
+            "description": "Paper not found in corpus"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notes/{note_id}": {
+      "patch": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "Update a note",
+        "description": "Update the content of an existing note by its ID.",
+        "operationId": "update_note_notes__note_id__patch",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Note Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "404": {
+            "description": "Note not found"
+          },
+          "422": {
+            "description": "Validation error \u2014 content is required"
+          },
+          "429": {
+            "description": "Rate limit exceeded \u2014 max 10 updates per minute"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Notes"
+        ],
+        "summary": "Delete a note",
+        "description": "Permanently delete a note by its ID.",
+        "operationId": "delete_note_notes__note_id__delete",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "note_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Note Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "404": {
+            "description": "Note not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Utility"
+        ],
+        "summary": "Health check",
+        "description": "Check the API is running and responsive.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ArxivPaperResponse": {
+        "properties": {
+          "arxiv_id": {
+            "type": "string",
+            "title": "Arxiv Id",
+            "description": "arXiv paper ID (e.g. 1706.03762)"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Paper title"
+          },
+          "authors": {
+            "type": "string",
+            "title": "Authors",
+            "description": "Comma-separated author names"
+          },
+          "abstract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstract",
+            "description": "Paper abstract"
+          },
+          "categories": {
+            "type": "string",
+            "title": "Categories",
+            "description": "Space-separated arXiv categories"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year",
+            "description": "Publication year"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi",
+            "description": "Digital Object Identifier"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "arXiv URL"
+          },
+          "similarity_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity Score",
+            "description": "Cosine similarity score from vector search (0-1)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "arxiv_id",
+          "title",
+          "authors",
+          "categories",
+          "url"
+        ],
+        "title": "ArxivPaperResponse",
+        "description": "Schema for returning an arXiv paper from the corpus.",
+        "examples": [
+          {
+            "abstract": "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks...",
+            "arxiv_id": "1706.03762",
+            "authors": "Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, Illia Polosukhin",
+            "categories": "cs.CL cs.LG",
+            "doi": "10.48550/arXiv.1706.03762",
+            "similarity_score": 0.92,
+            "title": "Attention Is All You Need",
+            "url": "https://arxiv.org/abs/1706.03762",
+            "year": 2017
+          }
+        ]
+      },
+      "CommunityListResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Number of papers returned"
+          },
+          "papers": {
+            "items": {
+              "$ref": "#/components/schemas/CommunityPaperResponse"
+            },
+            "type": "array",
+            "title": "Papers",
+            "description": "Papers ranked by interaction count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "papers"
+        ],
+        "title": "CommunityListResponse",
+        "description": "Response from the community popular papers endpoint.",
+        "examples": [
+          {
+            "papers": [
+              {
+                "arxiv_id": "1706.03762",
+                "authors": "Ashish Vaswani, Noam Shazeer",
+                "categories": "cs.CL cs.LG",
+                "interaction_count": 14,
+                "last_interacted_at": "2025-03-10T11:42:00Z",
+                "title": "Attention Is All You Need",
+                "url": "https://arxiv.org/abs/1706.03762",
+                "year": 2017
+              }
+            ],
+            "total": 1
+          }
+        ]
+      },
+      "CommunityPaperResponse": {
+        "properties": {
+          "arxiv_id": {
+            "type": "string",
+            "title": "Arxiv Id",
+            "description": "arXiv paper ID"
+          },
+          "interaction_count": {
+            "type": "integer",
+            "title": "Interaction Count",
+            "description": "Total number of times this paper has been accessed or summarised"
+          },
+          "last_interacted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Interacted At",
+            "description": "Timestamp of the most recent interaction"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Paper title"
+          },
+          "authors": {
+            "type": "string",
+            "title": "Authors",
+            "description": "Comma-separated author names"
+          },
+          "categories": {
+            "type": "string",
+            "title": "Categories",
+            "description": "Space-separated arXiv categories"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year",
+            "description": "Publication year"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "arXiv URL"
+          }
+        },
+        "type": "object",
+        "required": [
+          "arxiv_id",
+          "interaction_count",
+          "last_interacted_at",
+          "title",
+          "authors",
+          "categories",
+          "url"
+        ],
+        "title": "CommunityPaperResponse",
+        "description": "A paper entry in the community activity index.",
+        "examples": [
+          {
+            "arxiv_id": "1706.03762",
+            "authors": "Ashish Vaswani, Noam Shazeer",
+            "categories": "cs.CL cs.LG",
+            "interaction_count": 14,
+            "last_interacted_at": "2025-03-10T11:42:00Z",
+            "title": "Attention Is All You Need",
+            "url": "https://arxiv.org/abs/1706.03762",
+            "year": 2017
+          }
+        ]
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "NoteCreate": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Content",
+            "description": "Note text (max 2000 characters)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "NoteCreate",
+        "description": "Request body for creating a note.",
+        "examples": [
+          {
+            "content": "Key contribution: introduces multi-head attention as a drop-in replacement for RNNs."
+          }
+        ]
+      },
+      "NoteResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "Note ID"
+          },
+          "arxiv_id": {
+            "type": "string",
+            "title": "Arxiv Id",
+            "description": "arXiv paper ID this note belongs to"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content",
+            "description": "Note text"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the note was created"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When the note was last updated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "arxiv_id",
+          "content",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "NoteResponse",
+        "description": "A single note on a paper.",
+        "examples": [
+          {
+            "arxiv_id": "1706.03762",
+            "content": "Key contribution: introduces multi-head attention as a drop-in replacement for RNNs.",
+            "created_at": "2025-03-10T10:00:00Z",
+            "id": 1,
+            "updated_at": "2025-03-10T10:00:00Z"
+          }
+        ]
+      },
+      "NoteUpdate": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Content",
+            "description": "Updated note text (max 2000 characters)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "NoteUpdate",
+        "description": "Request body for updating a note.",
+        "examples": [
+          {
+            "content": "Updated: also introduces positional encoding to preserve sequence order."
+          }
+        ]
+      },
+      "SearchResponse": {
+        "properties": {
+          "original_query": {
+            "type": "string",
+            "title": "Original Query",
+            "description": "The raw query submitted by the user"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field",
+            "description": "Human-readable label of the detected arXiv AI/ML category"
+          },
+          "optimised_query": {
+            "type": "string",
+            "title": "Optimised Query",
+            "description": "Query rewritten by the optimiser agent for better retrieval"
+          },
+          "result_count": {
+            "type": "integer",
+            "title": "Result Count",
+            "description": "Number of papers returned"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SearchResultItem"
+            },
+            "type": "array",
+            "title": "Results",
+            "description": "List of matching papers from the arXiv corpus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "original_query",
+          "optimised_query",
+          "result_count",
+          "results"
+        ],
+        "title": "SearchResponse",
+        "description": "Response from the agentic search pipeline.",
+        "examples": [
+          {
+            "field": "Machine Learning",
+            "optimised_query": "key-value cache memory optimisation transformer language models",
+            "original_query": "KV cache optimisation for transformers",
+            "result_count": 1,
+            "results": [
+              {
+                "abstract": "The dominant sequence transduction models...",
+                "arxiv_id": "1706.03762",
+                "authors": "Ashish Vaswani, Noam Shazeer",
+                "categories": "cs.CL cs.LG",
+                "similarity_score": 0.92,
+                "title": "Attention Is All You Need",
+                "url": "https://arxiv.org/abs/1706.03762",
+                "year": 2017
+              }
+            ]
+          }
+        ]
+      },
+      "SearchResultItem": {
+        "properties": {
+          "arxiv_id": {
+            "type": "string",
+            "title": "Arxiv Id",
+            "description": "arXiv paper ID"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Paper title"
+          },
+          "authors": {
+            "type": "string",
+            "title": "Authors",
+            "description": "Comma-separated author names"
+          },
+          "abstract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstract",
+            "description": "Paper abstract"
+          },
+          "categories": {
+            "type": "string",
+            "title": "Categories",
+            "description": "Space-separated arXiv categories"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year",
+            "description": "Publication year"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi",
+            "description": "Digital Object Identifier"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "arXiv URL"
+          },
+          "similarity_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity Score",
+            "description": "Cosine similarity score (0-1, higher is more similar)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "arxiv_id",
+          "title",
+          "authors",
+          "categories",
+          "url"
+        ],
+        "title": "SearchResultItem",
+        "description": "A single paper result from the arXiv corpus vector search."
+      },
+      "SummariseRequest": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Text",
+            "description": "Text to summarise (abstract or full paper text)"
+          },
+          "arxiv_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arxiv Id",
+            "description": "Optional arXiv ID \u2014 if provided, records this interaction in the community index"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "SummariseRequest",
+        "description": "Request body for previewing a summary.",
+        "examples": [
+          {
+            "arxiv_id": "1706.03762",
+            "text": "We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely..."
+          }
+        ]
+      },
+      "SummariseResponse": {
+        "properties": {
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "description": "AI-generated summary of the input text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "summary"
+        ],
+        "title": "SummariseResponse",
+        "description": "Response from the summarise preview endpoint.",
+        "examples": [
+          {
+            "summary": "This paper introduces the Transformer, a novel architecture that relies entirely on self-attention mechanisms. It achieves state-of-the-art results on machine translation benchmarks while being more parallelisable and requiring significantly less training time."
+          }
+        ]
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Search",
+      "description": "Agentic search pipeline: classify the query, optimise it for retrieval, then perform BGE vector similarity search over a local arXiv AI/ML corpus."
+    },
+    {
+      "name": "Papers",
+      "description": "Look up arXiv papers from the local corpus and find related papers via BGE vector similarity."
+    },
+    {
+      "name": "Summarisation",
+      "description": "AI-powered summarisation of academic text using the Gemini summariser agent. Rate limited to 5 requests/minute."
+    },
+    {
+      "name": "Community",
+      "description": "Community activity index \u2014 discover papers trending by interaction count across the API."
+    },
+    {
+      "name": "Notes",
+      "description": "Public notes on arXiv papers \u2014 readable by all consumers and agents. Full CRUD. Write endpoints rate limited to 10 requests/minute."
+    },
+    {
+      "name": "Utility",
+      "description": "System health and status checks."
+    }
+  ]
+}

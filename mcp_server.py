@@ -16,23 +16,26 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from mcp.server.fastmcp import FastMCP
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from app.agents.chat import chat
 from app.agents.classifier_optimiser import classify_and_optimise
 from app.agents.summariser import summarise_text as _summarise_text
 from app.database import async_session
-from app.models.paper import Paper
-from app.services.openalex import get_related_papers, search_papers as _search_papers
-from app.services.pdf_parser import extract_text_from_pdf
+from app.models.arxiv_paper import ArxivPaper
+from app.models.community_paper import CommunityPaper
+from app.models.paper_note import PaperNote
+from app.services.community import track_interaction
+from app.services.vector_search import find_related, search_by_query
 
 mcp = FastMCP(
     "DeepResearch",
     instructions=(
-        "An academic research assistant. Search for papers, save them to your library, "
-        "summarise text, ask questions about saved papers, and find related work. "
-        "All paper discovery uses OpenAlex with an agentic classification and query "
-        "optimisation pipeline powered by Gemini."
+        "An academic research assistant. Search a local arXiv AI/ML corpus, "
+        "summarise text, find related work, and engage with community features. "
+        "Paper discovery uses BGE embeddings with ChromaDB vector search, powered "
+        "by an agentic classification and query optimisation pipeline (Gemini). "
+        "Community tools let you see which papers are trending by interaction count "
+        "and read or add public notes that other users and agents can see."
     ),
 )
 
@@ -41,59 +44,59 @@ mcp = FastMCP(
 # Helper
 # ---------------------------------------------------------------------------
 
-def _paper_to_dict(paper: Paper, *, compact: bool = False) -> dict:
-    """Convert a Paper ORM instance to a serialisable dict."""
-    d = {
-        "id": paper.id,
+def _paper_to_dict(paper: ArxivPaper, *, similarity_score: float | None = None) -> dict:
+    """Convert an ArxivPaper ORM instance to a serialisable dict."""
+    return {
+        "arxiv_id": paper.arxiv_id,
         "title": paper.title,
         "authors": paper.authors,
+        "abstract": paper.abstract,
+        "categories": paper.categories,
         "year": paper.year,
-        "tags": paper.tags,
-        "summary": paper.summary,
+        "doi": paper.doi,
+        "url": paper.url,
+        "similarity_score": similarity_score,
     }
-    if not compact:
-        d.update({
-            "openalex_id": paper.openalex_id,
-            "abstract": paper.abstract,
-            "url": paper.url,
-            "open_access_pdf_url": paper.open_access_pdf_url,
-            "citation_count": paper.citation_count,
-            "notes": paper.notes,
-            "full_text": paper.full_text,
-            "created_at": str(paper.created_at),
-            "updated_at": str(paper.updated_at),
-        })
-    return d
 
 
 # ---------------------------------------------------------------------------
 # Resources
 # ---------------------------------------------------------------------------
 
-@mcp.resource("papers://library")
-async def list_library() -> str:
-    """List all saved papers in the library (compact view: id, title, authors, year, tags, summary)."""
+@mcp.resource("arxiv://{arxiv_id}")
+async def get_paper(arxiv_id: str) -> str:
+    """Get full details of an arXiv paper from the corpus by its arXiv ID."""
     async with async_session() as db:
-        result = await db.execute(select(Paper).order_by(Paper.created_at.desc()))
-        papers = result.scalars().all()
-
-    if not papers:
-        return "The library is empty. Use the search_papers and save_paper tools to add papers."
-
-    return json.dumps([_paper_to_dict(p, compact=True) for p in papers], indent=2, default=str)
-
-
-@mcp.resource("papers://{paper_id}")
-async def get_paper(paper_id: int) -> str:
-    """Get full details of a saved paper by its database ID."""
-    async with async_session() as db:
-        result = await db.execute(select(Paper).where(Paper.id == paper_id))
+        result = await db.execute(
+            select(ArxivPaper).where(ArxivPaper.arxiv_id == arxiv_id)
+        )
         paper = result.scalar_one_or_none()
 
-    if not paper:
-        return f"Paper with ID {paper_id} not found."
+        if not paper:
+            return f"Paper with arXiv ID {arxiv_id} not found in the corpus."
+
+        await track_interaction(arxiv_id, db)
 
     return json.dumps(_paper_to_dict(paper), indent=2, default=str)
+
+
+@mcp.resource("arxiv://stats")
+async def corpus_stats() -> str:
+    """Get statistics about the local arXiv corpus (total papers and year range)."""
+    async with async_session() as db:
+        count_result = await db.execute(select(func.count()).select_from(ArxivPaper))
+        total = count_result.scalar()
+
+        min_year_result = await db.execute(select(func.min(ArxivPaper.year)))
+        min_year = min_year_result.scalar()
+
+        max_year_result = await db.execute(select(func.max(ArxivPaper.year)))
+        max_year = max_year_result.scalar()
+
+    return json.dumps({
+        "total_papers": total,
+        "year_range": {"min": min_year, "max": max_year},
+    }, indent=2)
 
 
 # ---------------------------------------------------------------------------
@@ -104,16 +107,31 @@ async def get_paper(paper_id: int) -> str:
 async def search_papers(query: str) -> str:
     """Search for academic papers using the agentic pipeline.
 
-    Classifies the query into an academic field, optimises it for semantic search,
-    then queries OpenAlex. Returns up to 10 results with title, authors, year,
-    abstract, and metadata.
+    Classifies the query into an arXiv AI/ML category, optimises it for semantic search,
+    then performs BGE vector similarity search over the local arXiv AI/ML corpus.
+    Returns up to 10 results with title, authors, year, abstract, and metadata.
     """
     try:
         classification = await classify_and_optimise(query)
-        field_id = classification.get("field_id")
         optimised_query = classification.get("optimised_query", query)
 
-        results = await _search_papers(optimised_query, semantic=True, field_id=field_id)
+        hits = search_by_query(optimised_query)
+
+        # Look up full metadata from SQLite
+        arxiv_ids = [h["arxiv_id"] for h in hits]
+        score_map = {h["arxiv_id"]: h["similarity_score"] for h in hits}
+
+        async with async_session() as db:
+            result = await db.execute(
+                select(ArxivPaper).where(ArxivPaper.arxiv_id.in_(arxiv_ids))
+            )
+            papers = {p.arxiv_id: p for p in result.scalars().all()}
+
+        results = []
+        for aid in arxiv_ids:
+            paper = papers.get(aid)
+            if paper:
+                results.append(_paper_to_dict(paper, similarity_score=score_map.get(aid)))
 
         output = {
             "original_query": query,
@@ -145,164 +163,116 @@ async def summarise_text(text: str) -> str:
 
 
 @mcp.tool()
-async def save_paper(
-    openalex_id: str,
-    title: str,
-    authors: str,
-    abstract: str | None = None,
-    year: int | None = None,
-    url: str | None = None,
-    open_access_pdf_url: str | None = None,
-    citation_count: int = 0,
-    tags: str | None = None,
-    notes: str | None = None,
-) -> str:
-    """Save a paper to the library.
+async def find_related_papers(arxiv_id: str) -> str:
+    """Find papers related to a given arXiv paper using BGE vector similarity.
 
-    Automatically extracts full text from the PDF (if available) and generates
-    an AI summary. Use the results from search_papers to fill in the parameters.
+    Looks up the paper's embedding in ChromaDB and returns up to 5 similar papers
+    from the corpus.
     """
     try:
+        # Verify paper exists in SQLite
         async with async_session() as db:
-            # Check for duplicate
-            existing = await db.execute(
-                select(Paper).where(Paper.openalex_id == openalex_id)
+            result = await db.execute(
+                select(ArxivPaper).where(ArxivPaper.arxiv_id == arxiv_id)
             )
-            if existing.scalar_one_or_none():
-                return f"Paper already saved (openalex_id: {openalex_id})."
+            paper = result.scalar_one_or_none()
+            if not paper:
+                return f"Paper with arXiv ID {arxiv_id} not found in the corpus."
 
-            paper = Paper(
-                openalex_id=openalex_id,
-                title=title,
-                authors=authors,
-                abstract=abstract,
-                year=year,
-                url=url,
-                open_access_pdf_url=open_access_pdf_url,
-                citation_count=citation_count,
-                tags=tags,
-                notes=notes,
+        hits = find_related(arxiv_id, n_results=5)
+
+        # Look up full metadata and track interaction
+        related_ids = [h["arxiv_id"] for h in hits]
+        score_map = {h["arxiv_id"]: h["similarity_score"] for h in hits}
+
+        async with async_session() as db:
+            await track_interaction(arxiv_id, db)
+            result = await db.execute(
+                select(ArxivPaper).where(ArxivPaper.arxiv_id.in_(related_ids))
             )
+            papers = {p.arxiv_id: p for p in result.scalars().all()}
 
-            # Extract full text from PDF (best-effort)
-            full_text = await extract_text_from_pdf(open_access_pdf_url)
-            paper.full_text = full_text
+        results = []
+        for aid in related_ids:
+            p = papers.get(aid)
+            if p:
+                results.append(_paper_to_dict(p, similarity_score=score_map.get(aid)))
 
-            # Generate summary (best-effort)
-            source_text = full_text or abstract
-            if source_text:
-                try:
-                    paper.summary = await _summarise_text(source_text)
-                except Exception:
-                    pass
-
-            db.add(paper)
-            await db.commit()
-            await db.refresh(paper)
-
-        summary_note = f" Summary: {paper.summary}" if paper.summary else ""
-        return f"Saved paper (ID: {paper.id}): {paper.title}.{summary_note}"
-
-    except Exception as exc:
-        return f"Error saving paper: {exc}"
-
-
-@mcp.tool()
-async def update_paper(
-    paper_id: int,
-    tags: str | None = None,
-    notes: str | None = None,
-) -> str:
-    """Update tags or notes on a saved paper. Only provided fields are changed."""
-    try:
-        async with async_session() as db:
-            result = await db.execute(select(Paper).where(Paper.id == paper_id))
-            paper = result.scalar_one_or_none()
-            if not paper:
-                return f"Paper with ID {paper_id} not found."
-
-            if tags is not None:
-                paper.tags = tags
-            if notes is not None:
-                paper.notes = notes
-
-            await db.commit()
-            await db.refresh(paper)
-
-        return f"Updated paper {paper_id}: tags={paper.tags!r}, notes={paper.notes!r}"
-
-    except Exception as exc:
-        return f"Error updating paper: {exc}"
-
-
-@mcp.tool()
-async def delete_paper(paper_id: int) -> str:
-    """Remove a paper from the library by its database ID."""
-    try:
-        async with async_session() as db:
-            result = await db.execute(select(Paper).where(Paper.id == paper_id))
-            paper = result.scalar_one_or_none()
-            if not paper:
-                return f"Paper with ID {paper_id} not found."
-
-            title = paper.title
-            await db.delete(paper)
-            await db.commit()
-
-        return f"Deleted paper {paper_id}: {title}"
-
-    except Exception as exc:
-        return f"Error deleting paper: {exc}"
-
-
-@mcp.tool()
-async def chat_with_paper(paper_id: int, question: str) -> str:
-    """Ask a question about a saved paper.
-
-    Stateless — uses the paper's full text or abstract as context with no
-    conversation history. The LLM client manages multi-turn context naturally.
-    """
-    try:
-        async with async_session() as db:
-            result = await db.execute(select(Paper).where(Paper.id == paper_id))
-            paper = result.scalar_one_or_none()
-            if not paper:
-                return f"Paper with ID {paper_id} not found."
-
-            paper_text = paper.full_text or paper.abstract or paper.title
-
-        response = await chat(paper_text, history=[], user_message=question)
-        if response is None:
-            return "Error: chat failed — Gemini unavailable or returned an error."
-        return response
-
-    except Exception as exc:
-        return f"Error chatting about paper: {exc}"
-
-
-@mcp.tool()
-async def find_related_papers(paper_id: int) -> str:
-    """Find papers related to a saved paper.
-
-    Uses the Gemini agent to extract core research concepts and build an optimised
-    semantic search query, then queries OpenAlex. Returns up to 5 related papers.
-    """
-    try:
-        async with async_session() as db:
-            result = await db.execute(select(Paper).where(Paper.id == paper_id))
-            paper = result.scalar_one_or_none()
-            if not paper:
-                return f"Paper with ID {paper_id} not found."
-
-            openalex_id = paper.openalex_id
-            title = paper.title
-            abstract = paper.abstract
-
-        results = await get_related_papers(openalex_id, title, abstract)
         return json.dumps(results, indent=2, default=str)
 
     except Exception as exc:
         return f"Error finding related papers: {exc}"
+
+
+@mcp.tool()
+async def get_community_papers(limit: int = 10) -> str:
+    """Get the most actively engaged papers in the community, ranked by interaction count.
+
+    Papers enter the community index when they are looked up, summarised, or used
+    in a related-papers query — by any user or agent. Useful for discovering what
+    the community is currently reading and researching.
+    """
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                select(CommunityPaper, ArxivPaper)
+                .join(ArxivPaper, CommunityPaper.arxiv_id == ArxivPaper.arxiv_id)
+                .order_by(CommunityPaper.interaction_count.desc())
+                .limit(max(1, min(limit, 100)))
+            )
+            rows = result.all()
+
+        if not rows:
+            return "No papers in the community index yet."
+
+        output = [
+            {
+                "arxiv_id": community.arxiv_id,
+                "interaction_count": community.interaction_count,
+                "last_interacted_at": str(community.last_interacted_at),
+                "title": paper.title,
+                "authors": paper.authors,
+                "year": paper.year,
+                "url": paper.url,
+            }
+            for community, paper in rows
+        ]
+        return json.dumps(output, indent=2, default=str)
+
+    except Exception as exc:
+        return f"Error retrieving community papers: {exc}"
+
+
+@mcp.tool()
+async def get_paper_notes(arxiv_id: str) -> str:
+    """Get all public notes attached to a specific arXiv paper.
+
+    Notes are community-contributed annotations visible to all API consumers
+    and agents. Useful for seeing what others have observed about a paper.
+    """
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                select(PaperNote).where(PaperNote.arxiv_id == arxiv_id)
+            )
+            notes = result.scalars().all()
+
+        if not notes:
+            return f"No notes found for paper {arxiv_id}."
+
+        output = [
+            {
+                "id": note.id,
+                "content": note.content,
+                "created_at": str(note.created_at),
+                "updated_at": str(note.updated_at),
+            }
+            for note in notes
+        ]
+        return json.dumps(output, indent=2)
+
+    except Exception as exc:
+        return f"Error retrieving notes: {exc}"
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,9 @@ venv/
 # Database
 deepresearch.db
 
+# Vector DB
+chroma_db/
+
 # Python
 __pycache__/
 *.py[cod]

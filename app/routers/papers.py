@@ -1,196 +1,111 @@
-"""CRUD endpoints for saved papers."""
+"""Corpus lookup endpoints — get a paper or find related papers from the arXiv corpus."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_api_key
 from app.database import get_db
-from app.models.paper import Paper
-from app.schemas.paper import PaperCreate, PaperResponse, PaperUpdate
-from app.schemas.search import SearchResultItem
-from app.routers.summary import summarise
-from app.schemas.summary import SummariseRequest
-from app.services.openalex import get_related_papers
-from app.services.pdf_parser import extract_text_from_pdf
+from app.models.arxiv_paper import ArxivPaper
+from app.schemas.arxiv_paper import ArxivPaperResponse
+from app.services.community import track_interaction
+from app.services.vector_search import find_related
 
 router = APIRouter(prefix="/papers", tags=["Papers"], dependencies=[Depends(get_api_key)])
 
 
-@router.post(
-    "",
-    response_model=PaperResponse,
-    status_code=201,
-    summary="Save a paper to the library",
-    responses={
-        401: {"description": "Missing or invalid API key"},
-        409: {"description": "Paper with this OpenAlex ID already saved"},
-        422: {"description": "Validation error — missing required fields"},
-        500: {"description": "Internal server error"},
-    },
-)
-async def create_paper(
-    body: PaperCreate,
-    db: AsyncSession = Depends(get_db),
-) -> Paper:
-    """Save a paper to the library. Automatically extracts full text from the
-    PDF (if available) and generates an AI summary via the Gemini summariser.
-    Both extraction and summarisation are best-effort and never block the save.
-    """
-    # Check for duplicate
-    existing = await db.execute(
-        select(Paper).where(Paper.openalex_id == body.openalex_id)
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Paper already saved")
-
-    paper = Paper(**body.model_dump())
-
-    # Extract full text from PDF if available (best-effort, never blocks save)
-    full_text = await extract_text_from_pdf(paper.open_access_pdf_url)
-    paper.full_text = full_text
-
-    # Generate summary via the /summarise API (best-effort, never blocks save)
-    source_text = full_text or paper.abstract
-    if source_text:
-        try:
-            result = await summarise(SummariseRequest(text=source_text))
-            paper.summary = result["summary"]
-        except Exception:
-            pass  # summarisation failure must not block paper save
-
-    db.add(paper)
-    await db.commit()
-    await db.refresh(paper)
-    return paper
-
-
 @router.get(
-    "",
-    response_model=list[PaperResponse],
-    summary="List saved papers",
+    "/{arxiv_id}",
+    response_model=ArxivPaperResponse,
+    summary="Get a paper from the corpus",
     responses={
         401: {"description": "Missing or invalid API key"},
-    },
-)
-async def list_papers(
-    tags: str | None = Query(None, description="Filter by tag (substring match)"),
-    db: AsyncSession = Depends(get_db),
-) -> list[Paper]:
-    """List all saved papers, optionally filtered by tag. Results are ordered
-    by creation date (newest first).
-    """
-    stmt = select(Paper).order_by(Paper.created_at.desc())
-    if tags:
-        stmt = stmt.where(Paper.tags.contains(tags))
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
-
-
-@router.get(
-    "/{paper_id}",
-    response_model=PaperResponse,
-    summary="Get a saved paper",
-    responses={
-        401: {"description": "Missing or invalid API key"},
-        404: {"description": "Paper not found"},
+        404: {"description": "Paper not found in the corpus"},
     },
 )
 async def get_paper(
-    paper_id: int,
+    arxiv_id: str,
     db: AsyncSession = Depends(get_db),
-) -> Paper:
-    """Get a specific saved paper by its database ID. Returns the full paper
-    record including extracted text and AI summary.
-    """
-    result = await db.execute(select(Paper).where(Paper.id == paper_id))
+) -> dict:
+    """Look up an arXiv paper by its ID from the local AI/ML corpus."""
+    result = await db.execute(
+        select(ArxivPaper).where(ArxivPaper.arxiv_id == arxiv_id)
+    )
     paper = result.scalar_one_or_none()
     if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
-    return paper
+        raise HTTPException(status_code=404, detail="Paper not found in corpus")
 
+    await track_interaction(arxiv_id, db)
 
-@router.put(
-    "/{paper_id}",
-    response_model=PaperResponse,
-    summary="Update paper tags or notes",
-    responses={
-        401: {"description": "Missing or invalid API key"},
-        404: {"description": "Paper not found"},
-        422: {"description": "Validation error"},
-    },
-)
-async def update_paper(
-    paper_id: int,
-    body: PaperUpdate,
-    db: AsyncSession = Depends(get_db),
-) -> Paper:
-    """Update the tags or notes on a saved paper. Only fields included in the
-    request body are updated; omitted fields remain unchanged.
-    """
-    result = await db.execute(select(Paper).where(Paper.id == paper_id))
-    paper = result.scalar_one_or_none()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
-
-    update_data = body.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(paper, field, value)
-
-    await db.commit()
-    await db.refresh(paper)
-    return paper
-
-
-@router.delete(
-    "/{paper_id}",
-    status_code=204,
-    summary="Delete a saved paper",
-    responses={
-        401: {"description": "Missing or invalid API key"},
-        404: {"description": "Paper not found"},
-    },
-)
-async def delete_paper(
-    paper_id: int,
-    db: AsyncSession = Depends(get_db),
-) -> None:
-    """Remove a paper from the library."""
-    result = await db.execute(select(Paper).where(Paper.id == paper_id))
-    paper = result.scalar_one_or_none()
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
-
-    await db.delete(paper)
-    await db.commit()
+    return {
+        "arxiv_id": paper.arxiv_id,
+        "title": paper.title,
+        "authors": paper.authors,
+        "abstract": paper.abstract,
+        "categories": paper.categories,
+        "year": paper.year,
+        "doi": paper.doi,
+        "url": paper.url,
+        "similarity_score": None,
+    }
 
 
 @router.get(
-    "/{paper_id}/related",
-    response_model=list[SearchResultItem],
+    "/{arxiv_id}/related",
+    response_model=list[ArxivPaperResponse],
     summary="Find related papers",
     responses={
         401: {"description": "Missing or invalid API key"},
-        404: {"description": "Paper not found"},
-        500: {"description": "OpenAlex API failure"},
+        404: {"description": "Paper not found in the corpus or vector store"},
+        500: {"description": "Vector search failure"},
     },
 )
 async def related_papers(
-    paper_id: int,
+    arxiv_id: str,
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
-    """Find papers related to a saved paper using the Gemini agent to extract
-    core research concepts and build an optimised semantic search query.
-    Returns up to 5 related works from OpenAlex, excluding the original.
+    """Find papers related to the given arXiv paper using BGE vector similarity.
+    Returns up to 5 related papers from the corpus.
     """
-    result = await db.execute(select(Paper).where(Paper.id == paper_id))
+    # Verify paper exists in SQLite
+    result = await db.execute(
+        select(ArxivPaper).where(ArxivPaper.arxiv_id == arxiv_id)
+    )
     paper = result.scalar_one_or_none()
     if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
+        raise HTTPException(status_code=404, detail="Paper not found in corpus")
+
+    await track_interaction(arxiv_id, db)
 
     try:
-        results = await get_related_papers(paper.openalex_id, paper.title, paper.abstract)
-    except RuntimeError as exc:
+        hits = find_related(arxiv_id, n_results=5)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    # Look up full metadata
+    related_ids = [h["arxiv_id"] for h in hits]
+    score_map = {h["arxiv_id"]: h["similarity_score"] for h in hits}
+
+    result = await db.execute(
+        select(ArxivPaper).where(ArxivPaper.arxiv_id.in_(related_ids))
+    )
+    papers = {p.arxiv_id: p for p in result.scalars().all()}
+
+    results = []
+    for aid in related_ids:
+        p = papers.get(aid)
+        if p:
+            results.append({
+                "arxiv_id": p.arxiv_id,
+                "title": p.title,
+                "authors": p.authors,
+                "abstract": p.abstract,
+                "categories": p.categories,
+                "year": p.year,
+                "doi": p.doi,
+                "url": p.url,
+                "similarity_score": score_map.get(aid),
+            })
     return results
