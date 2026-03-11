@@ -7,8 +7,11 @@ alembic
 pydantic
 pydantic-settings
 python-dotenv
-httpx
 google-genai
-pymupdf
+chromadb
+sentence-transformers
+datasets
+mcp[cli]
+slowapi
 pytest
 pytest-asyncio

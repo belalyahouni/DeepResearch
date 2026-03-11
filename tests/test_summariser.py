@@ -42,38 +42,3 @@ async def test_summarise_gemini_fails_returns_500(client: AsyncClient):
     with patch("app.routers.summary.summarise_text", return_value=None):
         response = await client.post("/summarise", json={"text": SAMPLE_TEXT})
     assert response.status_code == 500
-
-
-# --- Summary generation on paper save (via /summarise internally) ---
-
-SAMPLE_PAPER = {
-    "openalex_id": "https://openalex.org/W2963403868",
-    "title": "Attention Is All You Need",
-    "authors": "Ashish Vaswani, Noam Shazeer",
-    "abstract": "The dominant sequence transduction models...",
-    "year": 2017,
-    "url": "https://arxiv.org/abs/1706.03762",
-    "open_access_pdf_url": "https://arxiv.org/pdf/1706.03762",
-    "citation_count": 100000,
-}
-
-
-async def test_create_paper_generates_summary(client: AsyncClient):
-    """Paper saved via POST /papers gets an auto-generated summary via /summarise."""
-    with patch(
-        "app.routers.summary.summarise_text",
-        return_value="## Key Findings\n- Great paper",
-    ):
-        response = await client.post("/papers", json=SAMPLE_PAPER)
-    assert response.status_code == 201
-    data = response.json()
-    assert data["summary"] == "## Key Findings\n- Great paper"
-
-
-async def test_create_paper_summary_fails_gracefully(client: AsyncClient):
-    """Paper is still saved when summariser fails."""
-    with patch("app.routers.summary.summarise_text", return_value=None):
-        response = await client.post("/papers", json=SAMPLE_PAPER)
-    assert response.status_code == 201
-    data = response.json()
-    assert data["summary"] is None

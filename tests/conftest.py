@@ -39,23 +39,9 @@ async def setup_db():
 
 
 @pytest.fixture(autouse=True)
-def _mock_pdf_parser():
-    """Mock PDF parser globally so tests never make real HTTP requests for PDFs."""
-    with patch("app.routers.papers.extract_text_from_pdf", return_value=None):
-        yield
-
-
-@pytest.fixture(autouse=True)
 def _mock_summariser():
     """Mock summariser globally so tests never call Gemini."""
     with patch("app.routers.summary.summarise_text", return_value=None):
-        yield
-
-
-@pytest.fixture(autouse=True)
-def _mock_chat_agent():
-    """Mock chat agent globally so tests never call Gemini."""
-    with patch("app.routers.conversation.chat", return_value=None):
         yield
 
 
@@ -68,3 +54,36 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
         headers={"X-API-Key": "test-api-key"},
     ) as ac:
         yield ac
+
+
+@pytest.fixture
+async def sample_papers():
+    """Insert sample arXiv papers into the test database."""
+    from app.models.arxiv_paper import ArxivPaper
+
+    papers_data = [
+        ArxivPaper(
+            arxiv_id="1706.03762",
+            title="Attention Is All You Need",
+            authors="Ashish Vaswani, Noam Shazeer",
+            abstract="The dominant sequence transduction models...",
+            categories="cs.CL cs.LG",
+            year=2017,
+            doi=None,
+            url="https://arxiv.org/abs/1706.03762",
+        ),
+        ArxivPaper(
+            arxiv_id="1810.04805",
+            title="BERT: Pre-training of Deep Bidirectional Transformers",
+            authors="Jacob Devlin, Ming-Wei Chang",
+            abstract="We introduce a new language representation model...",
+            categories="cs.CL",
+            year=2018,
+            doi=None,
+            url="https://arxiv.org/abs/1810.04805",
+        ),
+    ]
+    async with test_session() as session:
+        session.add_all(papers_data)
+        await session.commit()
+    return papers_data

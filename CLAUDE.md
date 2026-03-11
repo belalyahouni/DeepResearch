@@ -1,7 +1,7 @@
 # CLAUDE.md — DeepResearch API
 
-Agentic research assistant API — discover, save, and chat with academic papers.
-FastAPI + SQLite + Gemini + OpenAlex. University coursework (COMP3011, Leeds).
+Agentic research assistant API — discover and search academic AI/ML papers.
+FastAPI + SQLite + ChromaDB + Gemini + arXiv corpus. University coursework (COMP3011, Leeds).
 
 ## Tech Stack
 
@@ -11,11 +11,13 @@ FastAPI + SQLite + Gemini + OpenAlex. University coursework (COMP3011, Leeds).
 | Framework | FastAPI | Swagger UI at `/docs` |
 | Database | SQLite | SQLAlchemy ORM, file `deepresearch.db` |
 | Migrations | Alembic | DB schema versioning |
+| Vector DB | ChromaDB | Persistent on-disk at `chroma_db/`, cosine similarity |
+| Embeddings | `BAAI/bge-base-en-v1.5` | sentence-transformers, 768-dim, MPS-accelerated |
 | LLM | Google Gemini | `google-genai` SDK |
-| Papers | OpenAlex API | Semantic search (beta) |
-| PDF Parsing | PyMuPDF (`fitz`) | Full text extraction |
-| HTTP Client | `httpx` | Async requests |
+| Corpus | arXiv AI/ML dataset | HuggingFace `davanstrien/arxiv-cs-papers-classified` |
 | Testing | pytest + pytest-asyncio | In-memory SQLite, mocked external APIs |
+| MCP | `mcp` (FastMCP) | Claude Desktop integration via stdio |
+| Rate Limiting | `slowapi` | Per-IP, in-memory, applied to write endpoints |
 
 ## LLM Models
 
@@ -23,25 +25,45 @@ FastAPI + SQLite + Gemini + OpenAlex. University coursework (COMP3011, Leeds).
 |---|---|
 | Classifier + Optimiser | `gemini-2.5-flash-lite` |
 | Summariser | `gemini-2.5-pro` |
-| Chat | `gemini-2.5-flash` |
-| Related Papers | `gemini-2.5-flash-lite` |
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/health` | Health check |
-| GET | `/search?query=...` | Classify → optimise → semantic search via OpenAlex |
-| POST | `/summarise` | Summarise any text (abstract or full paper) |
-| POST | `/papers` | Save paper (auto-extracts PDF + generates summary) |
-| GET | `/papers` | List saved papers (`?tags=` filter) |
-| GET | `/papers/{id}` | Get a saved paper |
-| PUT | `/papers/{id}` | Update tags/notes |
-| DELETE | `/papers/{id}` | Remove paper |
-| GET | `/papers/{id}/related` | Find related papers (agent-powered semantic search) |
-| POST | `/papers/{id}/chat` | Send chat message about paper (201) |
-| GET | `/papers/{id}/chat` | Get conversation history |
-| DELETE | `/papers/{id}/chat` | Clear conversation (204) |
+| GET | `/search?query=...` | Classify → optimise → BGE vector search over arXiv corpus |
+| POST | `/summarise` | Summarise any text; optional `arxiv_id` tracks community interaction. Rate limited 5/min |
+| GET | `/papers/{arxiv_id}` | Get a paper from the corpus by arXiv ID. Tracks community interaction |
+| GET | `/papers/{arxiv_id}/related` | Find related papers via BGE vector similarity. Tracks community interaction |
+| GET | `/community` | List most popular papers ranked by interaction count |
+| GET | `/community/{arxiv_id}` | Get community interaction stats for a specific paper |
+| POST | `/papers/{arxiv_id}/notes` | Add a public note to a paper. Rate limited 10/min |
+| GET | `/papers/{arxiv_id}/notes` | List all public notes on a paper |
+| PATCH | `/notes/{id}` | Update a note by ID. Rate limited 10/min |
+| DELETE | `/notes/{id}` | Delete a note by ID |
+
+## MCP Server (Claude Desktop)
+
+The project exposes an MCP (Model Context Protocol) server for use with Claude Desktop. It reuses the same agents, services, and database — no HTTP calls to the FastAPI app.
+
+**Entry point:** `mcp_server.py` (project root), stdio transport.
+
+### MCP Tools
+
+| Tool | Description |
+|---|---|
+| `search_papers` | Agentic classify + optimise + BGE vector search |
+| `summarise_text` | Gemini-powered summarisation |
+| `find_related_papers` | BGE vector similarity search for related papers. Tracks community interaction |
+| `get_community_papers` | List trending papers ranked by interaction count |
+| `get_paper_notes` | Retrieve all public community notes for a paper |
+
+### MCP Resources
+
+| URI | Description |
+|---|---|
+| `arxiv://{arxiv_id}` | Full paper details. Tracks community interaction |
+| `arxiv://stats` | Corpus stats (total papers, year range) |
 
 ## Key Commands
 
@@ -49,15 +71,42 @@ FastAPI + SQLite + Gemini + OpenAlex. University coursework (COMP3011, Leeds).
 source venv/bin/activate
 pip install -r requirements.txt
 alembic upgrade head
-uvicorn app.main:app --reload
+python scripts/ingest_arxiv.py           # Ingest full arXiv AI/ML corpus (~521k papers, ~1hr on MPS)
+python scripts/ingest_arxiv.py --limit N # Ingest N papers (for testing)
+uvicorn app.main:app --reload            # FastAPI server
+python mcp_server.py                     # MCP server (stdio, for Claude Desktop)
+mcp dev mcp_server.py                    # MCP Inspector (interactive testing)
 pytest tests/ -v
 ```
+
+## Corpus Ingestion
+
+- **Source:** HuggingFace `davanstrien/arxiv-cs-papers-classified` (1.14M CS papers)
+- **Filter:** `cs.AI, cs.LG, cs.CL, cs.CV, cs.NE, cs.MA, stat.ML` → ~521k AI/ML papers
+- **Pass 1:** Stream, filter, batch insert into SQLite (`arxiv_papers` table)
+- **Pass 2:** Embed `title + abstract` with `bge-base-en-v1.5`, upsert into ChromaDB
+- **Speed:** ~168 papers/sec on Apple Silicon MPS (~1hr for full corpus)
+- **Resumable:** Uses `INSERT OR IGNORE` — safe to re-run, skips existing papers
+- **Current state:** 10k papers ingested (2019 vintage); full run pending
+
+## Embedding Architecture
+
+- **Model:** `BAAI/bge-base-en-v1.5` (768-dim, sentence-transformers)
+- **Documents:** Embedded as `title + abstract` — no prefix
+- **Queries:** Embedded with BGE retrieval prefix at query time only
+- **Device:** Auto-detects MPS (Apple Silicon) → falls back to CPU
+- **ChromaDB:** Cosine similarity (`hnsw:space: cosine`), persistent at `chroma_db/`
+
+## Classifier Agent
+
+- Classifies queries into arXiv AI/ML categories: `cs.AI, cs.LG, cs.CL, cs.CV, cs.NE, cs.MA, stat.ML`
+- Returns: `category` (code), `field` (human-readable label), `optimised_query`
+- Graceful fallback if Gemini unavailable — returns original query, null category
 
 ## Environment Variables
 
 ```
 GEMINI_API_KEY=
-OPEN_ALEX_API_KEY=
 API_KEY=
 ```
 
@@ -71,14 +120,14 @@ API_KEY=
 - **Wrap Gemini/external calls** in try/except — graceful fallback on failure
 - **Proper HTTP status codes** — 200, 201, 204, 401, 404, 409, 422, 500
 - **API key auth** on all endpoints except `/health` and `/docs` — via `X-API-Key` header, `app/auth.py`
-- **Never commit** `.env` or `deepresearch.db`
+- **Never commit** `.env` or `deepresearch.db` or `chroma_db/`
 
 ## Testing
 
 - Run `pytest tests/ -v` after every change — 0 failures allowed
-- Tests use in-memory SQLite and mock all external APIs (Gemini, OpenAlex)
+- Tests use in-memory SQLite and mock all external APIs (Gemini, ChromaDB)
 - Cover: happy path, invalid input (422), not found (404), external failure (500), graceful fallback
-- 48 tests across 7 test files (includes `test_auth.py`)
+- 38 tests across 7 test files
 
 ## Quality Bar — Targeting 90-100
 
@@ -86,17 +135,18 @@ API_KEY=
 - Swagger UI with descriptions on all endpoints — export to PDF for submission
 - Descriptive commits with visible incremental history
 - README.md with setup instructions (**required**)
-- Novel 3-agent pipeline: classify + optimise → search → summarise → chat
+- Novel pipeline: arXiv classifier + query optimiser → BGE vector search → Gemini summariser
 
 ## Submission TODO
-
-All core API functionality is complete (48 tests passing). Remaining work is frontend, written deliverables, and presentation.
 
 ### Code & API (do first)
 - [x] **README.md** — project overview, setup instructions, endpoint summary, how to run tests. Pass/fail gate.
 - [x] **Swagger polish** — add descriptions, parameter docs, example requests/responses, and error codes to all endpoints
 - [x] **Export Swagger to PDF** — save `openapi.json` + exported PDF to repo
-- [ ] **Frontend** — simple UI for demo and presentation (search, save, library, chat)
+- [x] **CRUD** — `PaperNote` (full CRUD) + `CommunityPaper` (create/read/update via interaction tracking)
+- [ ] **Re-export Swagger to PDF** — new endpoints need to be included in the docs PDF
+- [ ] **Full corpus ingest** — run `python scripts/ingest_arxiv.py` overnight for ~521k papers
+- [ ] **Frontend** — simple UI for demo and presentation (search, library, related papers)
 
 ### Written Deliverables
 - [ ] **Technical report** (max 5 pages) — stack justification, architecture, testing approach, limitations, GenAI declaration
@@ -114,11 +164,13 @@ All core API functionality is complete (48 tests passing). Remaining work is fro
 ## Security
 
 - **API key auth** — `app/auth.py`, `X-API-Key` header, timing-safe comparison via `secrets.compare_digest`
-- **CORS middleware** — restricts origins to `localhost:8000`, whitelists only used methods and headers
+- **CORS middleware** — restricts origins to `localhost:8000`, whitelists only used methods and headers (`GET`, `POST`, `PATCH`, `DELETE`)
 - **Trusted host middleware** — rejects requests with forged `Host` headers
+- **Rate limiting** — `slowapi` per-IP limits on expensive/write endpoints: `POST /summarise` (5/min), `POST /notes` and `PATCH /notes` (10/min each)
 - **`/health` excluded** from auth (standard practice for monitoring)
 - See `AUTHENTICATION.md` for full details
 
 ### What NOT to Build
-- Rate limiting, Docker, deployment
+- Docker, deployment
 - Citation graph, recommendations, user accounts
+- Per-user saved papers — the API is public, all data is shared

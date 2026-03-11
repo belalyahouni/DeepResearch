@@ -46,3 +46,7 @@ problem with ai:
 
     related papers from openalex wasnt working
         looked at the docs for proper usage
+
+    tried going back to old branch when i wanted it to continue:
+        monitored as it code and realsied and interupted
+        
