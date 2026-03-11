@@ -16,6 +16,7 @@ FastAPI + SQLite + Gemini + OpenAlex. University coursework (COMP3011, Leeds).
 | PDF Parsing | PyMuPDF (`fitz`) | Full text extraction |
 | HTTP Client | `httpx` | Async requests |
 | Testing | pytest + pytest-asyncio | In-memory SQLite, mocked external APIs |
+| MCP | `mcp` (FastMCP) | Claude Desktop integration via stdio |
 
 ## LLM Models
 
@@ -39,9 +40,31 @@ FastAPI + SQLite + Gemini + OpenAlex. University coursework (COMP3011, Leeds).
 | PUT | `/papers/{id}` | Update tags/notes |
 | DELETE | `/papers/{id}` | Remove paper |
 | GET | `/papers/{id}/related` | Find related papers (agent-powered semantic search) |
-| POST | `/papers/{id}/chat` | Send chat message about paper (201) |
-| GET | `/papers/{id}/chat` | Get conversation history |
-| DELETE | `/papers/{id}/chat` | Clear conversation (204) |
+
+## MCP Server (Claude Desktop)
+
+The project also exposes an MCP (Model Context Protocol) server for use with Claude Desktop. It reuses the same agents, services, and database — no HTTP calls to the FastAPI app.
+
+**Entry point:** `mcp_server.py` (project root), stdio transport.
+
+### MCP Tools
+
+| Tool | Description |
+|---|---|
+| `search_papers` | Agentic classify + optimise + semantic search |
+| `summarise_text` | Gemini-powered summarisation |
+| `save_paper` | Save with auto PDF extraction + summary |
+| `update_paper` | Update tags/notes |
+| `delete_paper` | Remove from library |
+| `chat_with_paper` | Stateless Q&A about a saved paper |
+| `find_related_papers` | Agent-powered related paper discovery |
+
+### MCP Resources
+
+| URI | Description |
+|---|---|
+| `papers://library` | List all saved papers (compact) |
+| `papers://{paper_id}` | Full paper details |
 
 ## Key Commands
 
@@ -49,7 +72,9 @@ FastAPI + SQLite + Gemini + OpenAlex. University coursework (COMP3011, Leeds).
 source venv/bin/activate
 pip install -r requirements.txt
 alembic upgrade head
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload        # FastAPI server
+python mcp_server.py                  # MCP server (stdio, for Claude Desktop)
+mcp dev mcp_server.py                 # MCP Inspector (interactive testing)
 pytest tests/ -v
 ```
 
@@ -78,7 +103,7 @@ API_KEY=
 - Run `pytest tests/ -v` after every change — 0 failures allowed
 - Tests use in-memory SQLite and mock all external APIs (Gemini, OpenAlex)
 - Cover: happy path, invalid input (422), not found (404), external failure (500), graceful fallback
-- 48 tests across 7 test files (includes `test_auth.py`)
+- 38 tests across 6 test files (includes `test_auth.py`)
 
 ## Quality Bar — Targeting 90-100
 
@@ -90,7 +115,7 @@ API_KEY=
 
 ## Submission TODO
 
-All core API functionality is complete (48 tests passing). Remaining work is frontend, written deliverables, and presentation.
+All core API functionality is complete (38 tests passing). MCP server added for Claude Desktop. Remaining work is frontend, written deliverables, and presentation.
 
 ### Code & API (do first)
 - [x] **README.md** — project overview, setup instructions, endpoint summary, how to run tests. Pass/fail gate.

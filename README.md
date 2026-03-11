@@ -24,7 +24,7 @@ The API uses a **3-agent pipeline** powered by Google Gemini:
 
 1. **Classifier + Optimiser Agent** (`gemini-2.5-flash-lite`) — classifies the user's query into an academic field and rewrites it for optimal retrieval.
 2. **Summariser Agent** (`gemini-2.5-pro`) — generates structured summaries of paper abstracts or full texts.
-3. **Chat Agent** (`gemini-2.5-flash`) — enables multi-turn conversation about a saved paper using its full text as context.
+3. **Chat Agent** (`gemini-2.5-flash`) — answers questions about a saved paper using its full text as context.
 4. **Related Papers Agent** (`gemini-2.5-flash-lite`) — generates semantic search queries from a saved paper to discover related work via OpenAlex (250M+ works).
 
 When a paper is saved, the system automatically extracts the full text from the open-access PDF (via PyMuPDF) and generates an AI summary — both best-effort, never blocking the save operation.
@@ -74,9 +74,6 @@ All endpoints (except `/health`) require the `X-API-Key` header.
 | PUT | `/papers/{id}` | Update tags/notes |
 | DELETE | `/papers/{id}` | Remove paper |
 | GET | `/papers/{id}/related` | Find related papers (agent-powered semantic search) |
-| POST | `/papers/{id}/chat` | Send chat message about paper |
-| GET | `/papers/{id}/chat` | Get conversation history |
-| DELETE | `/papers/{id}/chat` | Clear conversation |
 
 ## Authentication
 
@@ -88,6 +85,47 @@ curl -H "X-API-Key: your-key" http://localhost:8000/papers
 
 The Swagger UI at `/docs` includes an **Authorise** button for interactive testing.
 
+## MCP Server (Claude Desktop)
+
+The project also includes an MCP (Model Context Protocol) server for integration with Claude Desktop. It exposes the same functionality as the REST API — search, save, summarise, chat, and related papers — as MCP tools and resources.
+
+### Setup
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "deepresearch": {
+      "command": "/path/to/research-agent/venv/bin/python",
+      "args": ["/path/to/research-agent/mcp_server.py"]
+    }
+  }
+}
+```
+
+Restart Claude Desktop. The tools will appear in the tools menu.
+
+### MCP Tools
+
+| Tool | Description |
+|---|---|
+| `search_papers` | Agentic classify + optimise + semantic search |
+| `summarise_text` | Gemini-powered summarisation |
+| `save_paper` | Save with auto PDF extraction + summary |
+| `update_paper` | Update tags/notes |
+| `delete_paper` | Remove from library |
+| `chat_with_paper` | Stateless Q&A about a saved paper |
+| `find_related_papers` | Agent-powered related paper discovery |
+
+### Testing the MCP Server
+
+```bash
+mcp dev mcp_server.py
+```
+
+This opens the MCP Inspector — a web UI for calling tools and reading resources interactively.
+
 ## Testing
 
 Tests use an in-memory SQLite database and mock all external APIs (Gemini, OpenAlex).
@@ -96,7 +134,7 @@ Tests use an in-memory SQLite database and mock all external APIs (Gemini, OpenA
 pytest tests/ -v
 ```
 
-48 tests across 7 test files covering: happy paths, validation errors (422), not found (404), duplicate detection (409), external service failures (500), and authentication (401).
+38 tests across 6 test files covering: happy paths, validation errors (422), not found (404), duplicate detection (409), external service failures (500), and authentication (401).
 
 ## API Documentation
 

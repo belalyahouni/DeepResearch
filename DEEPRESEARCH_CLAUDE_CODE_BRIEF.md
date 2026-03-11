@@ -2,7 +2,7 @@
 
 ## What This Is
 
-An agentic research assistant API that lets users discover, save, and chat with academic papers. Four Gemini LLM agents work together: one classifies and optimises search queries, one summarises papers, one powers multi-turn conversations about saved papers, and one discovers related work.
+An agentic research assistant API that lets users discover, save, and chat with academic papers. Four Gemini LLM agents work together: one classifies and optimises search queries, one summarises papers, one answers questions about saved papers, and one discovers related work. Also available as an MCP server for Claude Desktop.
 
 University coursework for COMP3011 (Web Services and Web Data), University of Leeds. Submission: 13 March 2026. Oral exam: week of 23 March 2026.
 
@@ -13,7 +13,7 @@ User query
   → Classifier/Optimiser (gemini-2.5-flash-lite) → field + optimised query
   → OpenAlex semantic search → results
   → User saves paper → PDF extracted (PyMuPDF) → Summariser (gemini-2.5-pro) → summary stored
-  → User chats about paper → Chat agent (gemini-2.5-flash) → multi-turn conversation
+  → User asks about paper → Chat agent (gemini-2.5-flash) → stateless Q&A
 ```
 
 ## Project Structure
@@ -25,17 +25,14 @@ app/
 ├── database.py                      # Async SQLAlchemy engine + session
 ├── models/
 │   ├── paper.py                     # Paper (openalex_id, title, authors, summary, full_text, etc.)
-│   └── conversation.py              # Conversation (paper_id, role, message)
 ├── schemas/
 │   ├── paper.py                     # PaperCreate, PaperUpdate, PaperResponse
 │   ├── summary.py                   # SummariseRequest, SummariseResponse
-│   ├── search.py                    # SearchResponse, SearchResult
-│   └── conversation.py              # ChatRequest, ChatResponse, ConversationResponse
+│   └── search.py                    # SearchResponse, SearchResult
 ├── routers/
-│   ├── papers.py                    # CRUD: POST/GET/PUT/DELETE /papers
+│   ├── papers.py                    # CRUD: POST/GET/PUT/DELETE /papers + related
 │   ├── search.py                    # GET /search — agent pipeline
-│   ├── summary.py                   # POST /summarise — single summarisation API
-│   └── conversation.py              # POST/GET/DELETE /papers/{id}/chat
+│   └── summary.py                   # POST /summarise — single summarisation API
 ├── agents/
 │   ├── classifier_optimiser.py      # Classify query into OpenAlex field + optimise
 │   ├── summariser.py                # Concise plain-text summaries (1-2 sentences)
@@ -50,24 +47,22 @@ tests/
 ├── test_summariser.py               # 6 tests: /summarise endpoint
 ├── test_search.py                   # 5 tests: pipeline, validation, fallback
 ├── test_pdf_parser.py               # 5 tests: extraction, failures, fallback
-├── test_chat.py                     # 10 tests: send, multi-turn, history, clear, limit
 └── test_auth.py                     # 3 tests: missing key, invalid key, health excluded
+mcp_server.py                        # MCP server for Claude Desktop (stdio transport)
 ```
 
 ## Key Design Decisions
 
 - **Modular summarisation** — single `POST /summarise` endpoint accepts any text. `POST /papers` calls it internally with full_text (fallback to abstract). One code path for all summarisation.
-- **Chat hard limit** — 20 messages (10 exchanges) per paper conversation to stay within Gemini free tier. User can clear and restart.
+- **Stateless chat** — chat agent is called with paper context + question, no conversation history stored. MCP clients (like Claude Desktop) manage their own multi-turn context.
 - **Summary style** — 1 sentence for abstracts, 2 sentences for full papers. No headings, no bullets, straight to the point.
 - **Chat style** — 2-4 sentence answers, student-friendly, no fluff, stays on-topic.
 - **PDF fallback chain** — full_text → abstract → title. Never crashes if PDF unavailable.
-- **User message preserved on Gemini failure** — chat saves user message to DB before calling Gemini. If Gemini fails (500), message history is intact.
+- **Dual interface** — FastAPI REST API for Swagger/frontend + MCP server for Claude Desktop. Both share the same agents, services, and database.
 
 ## Database Models
 
 **Paper**: id, openalex_id (unique), title, authors, abstract, year, url, open_access_pdf_url, citation_count, tags, notes, full_text, summary, created_at, updated_at
-
-**Conversation**: id, paper_id (FK → Paper), role ("user"/"assistant"), message, created_at
 
 ## Environment
 
