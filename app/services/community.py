@@ -17,11 +17,12 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.community_interaction import CommunityInteraction
 from app.models.community_paper import CommunityPaper
 
 
 async def track_interaction(arxiv_id: str, db: AsyncSession) -> None:
-    """Upsert a CommunityPaper record, incrementing the interaction count.
+    """Upsert a CommunityPaper record and append a CommunityInteraction event.
 
     Silently absorbs any DB errors so a tracking failure never breaks the
     calling endpoint.
@@ -32,15 +33,19 @@ async def track_interaction(arxiv_id: str, db: AsyncSession) -> None:
         )
         community = result.scalar_one_or_none()
 
+        now = datetime.now(timezone.utc)
+
         if community:
             community.interaction_count += 1
-            community.last_interacted_at = datetime.now(timezone.utc)
+            community.last_interacted_at = now
         else:
             db.add(CommunityPaper(
                 arxiv_id=arxiv_id,
                 interaction_count=1,
-                last_interacted_at=datetime.now(timezone.utc),
+                last_interacted_at=now,
             ))
+
+        db.add(CommunityInteraction(arxiv_id=arxiv_id, interacted_at=now))
 
         await db.commit()
     except Exception:

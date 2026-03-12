@@ -226,7 +226,7 @@
           "Community"
         ],
         "summary": "List most popular papers",
-        "description": "Returns papers ranked by community interaction count. A paper enters this index the first time it is directly accessed or summarised. Count increments on: direct paper lookup, summarisation, and related-papers queries.",
+        "description": "Returns papers ranked by community interaction count. Use the `period` parameter to filter by a rolling time window: `week` (last 7 days), `month` (last 30 days), `year` (last 365 days). Omit `period` for all-time rankings. A paper enters this index the first time it is directly accessed or summarised. Count increments on: direct paper lookup, summarisation, and related-papers queries.",
         "operationId": "list_community_papers_community_get",
         "security": [
           {
@@ -247,6 +247,24 @@
               "title": "Limit"
             },
             "description": "Number of papers to return (max 100)"
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Period"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Rolling time window: week (7d), month (30d), year (365d). Omit for all-time.",
+              "title": "Period"
+            },
+            "description": "Rolling time window: week (7d), month (30d), year (365d). Omit for all-time."
           }
         ],
         "responses": {
@@ -897,6 +915,15 @@
             "content": "Updated: also introduces positional encoding to preserve sequence order."
           }
         ]
+      },
+      "Period": {
+        "type": "string",
+        "enum": [
+          "week",
+          "month",
+          "year"
+        ],
+        "title": "Period"
       },
       "SearchResponse": {
         "properties": {

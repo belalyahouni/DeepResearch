@@ -6,6 +6,7 @@ Reuses existing agents, services, and database layer directly (no HTTP calls).
 
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Ensure working directory is the project root so the SQLite path resolves correctly
@@ -16,12 +17,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from mcp.server.fastmcp import FastMCP
-from sqlalchemy import func, select
+from sqlalchemy import desc, func, select
 
 from app.agents.classifier_optimiser import classify_and_optimise
 from app.agents.summariser import summarise_text as _summarise_text
 from app.database import async_session
 from app.models.arxiv_paper import ArxivPaper
+from app.models.community_interaction import CommunityInteraction
 from app.models.community_paper import CommunityPaper
 from app.models.paper_note import PaperNote
 from app.services.community import track_interaction
@@ -204,39 +206,89 @@ async def find_related_papers(arxiv_id: str) -> str:
         return f"Error finding related papers: {exc}"
 
 
+_PERIOD_DAYS = {"week": 7, "month": 30, "year": 365}
+
+
 @mcp.tool()
-async def get_community_papers(limit: int = 10) -> str:
+async def get_community_papers(limit: int = 10, period: str | None = None) -> str:
     """Get the most actively engaged papers in the community, ranked by interaction count.
 
     Papers enter the community index when they are looked up, summarised, or used
     in a related-papers query — by any user or agent. Useful for discovering what
     the community is currently reading and researching.
+
+    Args:
+        limit: Number of papers to return (1-100, default 10).
+        period: Rolling time window — "week" (7d), "month" (30d), or "year" (365d).
+                Omit for all-time rankings.
     """
+    if period is not None and period not in _PERIOD_DAYS:
+        return f"Invalid period '{period}'. Use 'week', 'month', 'year', or omit for all-time."
+
+    limit = max(1, min(limit, 100))
+
     try:
         async with async_session() as db:
-            result = await db.execute(
-                select(CommunityPaper, ArxivPaper)
-                .join(ArxivPaper, CommunityPaper.arxiv_id == ArxivPaper.arxiv_id)
-                .order_by(CommunityPaper.interaction_count.desc())
-                .limit(max(1, min(limit, 100)))
-            )
-            rows = result.all()
+            if period is not None:
+                cutoff = datetime.now(timezone.utc) - timedelta(days=_PERIOD_DAYS[period])
+                agg_result = await db.execute(
+                    select(CommunityInteraction.arxiv_id, func.count().label("count"))
+                    .where(CommunityInteraction.interacted_at >= cutoff)
+                    .group_by(CommunityInteraction.arxiv_id)
+                    .order_by(desc("count"))
+                    .limit(limit)
+                )
+                period_rows = agg_result.all()
 
-        if not rows:
-            return "No papers in the community index yet."
+                if not period_rows:
+                    return f"No community interactions in the past {period}."
 
-        output = [
-            {
-                "arxiv_id": community.arxiv_id,
-                "interaction_count": community.interaction_count,
-                "last_interacted_at": str(community.last_interacted_at),
-                "title": paper.title,
-                "authors": paper.authors,
-                "year": paper.year,
-                "url": paper.url,
-            }
-            for community, paper in rows
-        ]
+                arxiv_ids = [r.arxiv_id for r in period_rows]
+                count_map = {r.arxiv_id: r.count for r in period_rows}
+
+                paper_result = await db.execute(
+                    select(ArxivPaper).where(ArxivPaper.arxiv_id.in_(arxiv_ids))
+                )
+                papers = {p.arxiv_id: p for p in paper_result.scalars().all()}
+
+                output = [
+                    {
+                        "arxiv_id": aid,
+                        "interaction_count": count_map[aid],
+                        "period": period,
+                        "title": papers[aid].title if aid in papers else None,
+                        "authors": papers[aid].authors if aid in papers else None,
+                        "year": papers[aid].year if aid in papers else None,
+                        "url": papers[aid].url if aid in papers else None,
+                    }
+                    for aid in arxiv_ids
+                    if aid in papers
+                ]
+            else:
+                result = await db.execute(
+                    select(CommunityPaper, ArxivPaper)
+                    .join(ArxivPaper, CommunityPaper.arxiv_id == ArxivPaper.arxiv_id)
+                    .order_by(CommunityPaper.interaction_count.desc())
+                    .limit(limit)
+                )
+                rows = result.all()
+
+                if not rows:
+                    return "No papers in the community index yet."
+
+                output = [
+                    {
+                        "arxiv_id": community.arxiv_id,
+                        "interaction_count": community.interaction_count,
+                        "last_interacted_at": str(community.last_interacted_at),
+                        "title": paper.title,
+                        "authors": paper.authors,
+                        "year": paper.year,
+                        "url": paper.url,
+                    }
+                    for community, paper in rows
+                ]
+
         return json.dumps(output, indent=2, default=str)
 
     except Exception as exc:

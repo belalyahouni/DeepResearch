@@ -1,0 +1,787 @@
+ ▐▛███▜▌   Claude Code v2.1.73
+▝▜█████▛▘  Sonnet 4.6 with medium effort · Claude Pro
+  ▘▘ ▝▝    ~/Desktop/research-agent
+
+  ✻ Voice mode is now available · /voice to enable
+
+❯ how could we adjsut our community model idea so that maybe we can filter by most     
+itneractions of the month, of the year, of the week?                                   
+
+⏺ Let me look at the current community model and endpoint.
+
+⏺ Searched for 2 patterns, read 2 files (ctrl+o to expand)
+
+⏺ The core issue is that your current model only stores a total interaction_count —
+  there's no per-event history to filter by time window. Here are two approaches:
+
+  ---
+  Option A: Interaction Log Table (recommended)
+
+  Add a new CommunityInteraction table — one row per interaction event:
+
+  class CommunityInteraction(Base):
+      __tablename__ = "community_interactions"
+      id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+      arxiv_id: Mapped[str] = mapped_column(String, index=True, nullable=False)
+      interacted_at: Mapped[datetime] = mapped_column(DateTime,
+  server_default=func.now(), index=True)
+
+  Then GET /community gains a period query param (week / month / year / all), and the
+  query becomes:
+
+  cutoff = datetime.utcnow() - timedelta(days=7)  # or 30, 365, None
+
+  stmt = (
+      select(CommunityInteraction.arxiv_id, func.count().label("count"))
+      .where(CommunityInteraction.interacted_at >= cutoff)
+      .group_by(CommunityInteraction.arxiv_id)
+      .order_by(desc("count"))
+      .limit(limit)
+  )
+
+  CommunityPaper stays as-is for all-time totals and last_interacted_at. The
+  interaction_count column there just gets incremented as it does now.
+
+  Pros: Accurate, flexible, no background jobs, can add more periods later.
+  Cons: The table grows unboundedly — you'd eventually want to prune rows older than a
+  year.
+
+  ---
+  Option B: Denormalised counters on CommunityPaper
+
+  Add three extra columns to the existing model:
+
+  interactions_week: Mapped[int] = mapped_column(Integer, default=0)
+  interactions_month: Mapped[int] = mapped_column(Integer, default=0)
+  interactions_year: Mapped[int] = mapped_column(Integer, default=0)
+
+  Increment all four on each interaction, then reset the shorter windows on a
+  cron/background task.
+
+  Pros: Fast reads, no join/aggregation needed.
+  Cons: Needs a reset job (which resets at a fixed calendar boundary, not a rolling
+  window), and counts are approximate after reset.
+
+  ---
+  Recommendation
+
+  Go with Option A. It's a rolling window (not "since last Monday"), which is far more
+  useful for ranking. The table stays small if you prune anything older than a year.
+  The period query param is a clean API addition:
+
+  GET /community?period=week
+  GET /community?period=month
+  GET /community?period=year
+  GET /community        # defaults to all-time (existing behaviour)
+
+  Want me to implement Option A?
+
+✻ Sautéed for 36s
+
+❯ can we do something like just storing the data an interaction with a paper is. then  
+when we want to check like most popular papers in the past month, it basically justs   
+filters the interactions to only the ones in the previous month and then chooses the   
+top from that.                                                                         
+
+⏺ Yes, that's exactly Option A. Want me to implement it?
+
+  Here's what it touches:
+  - New CommunityInteraction model + Alembic migration
+  - Update the service that increments interaction_count to also insert a
+  CommunityInteraction row
+  - Add period query param to GET /community (week / month / year, defaults to
+  all-time)
+  - Update tests
+
+❯ yes                                                                                  
+
+⏺ Searched for 4 patterns, read 4 files (ctrl+o to expand)
+
+⏺ Let me also check the conftest and models __init__ to understand the test DB setup.
+
+⏺ Read 2 files (ctrl+o to expand)
+
+⏺ Now I have everything I need. I'll implement all the changes in one go.
+
+⏺ Write(app/models/community_interaction.py)
+  ⎿  Wrote 18 lines to app/models/community_interaction.py
+      1 """SQLAlchemy model for individual community interaction events."""
+      2
+      3 from datetime import datetime
+      4
+      5 from sqlalchemy import DateTime, Integer, String, func
+      6 from sqlalchemy.orm import Mapped, mapped_column
+      7
+      8 from app.database import Base
+      9
+     … +8 lines (ctrl+o to expand)
+
+⏺ Update(app/models/__init__.py)
+  ⎿  Added 2 lines, removed 1 line
+      1  from app.models.arxiv_paper import ArxivPaper
+      2 +from app.models.community_interaction import CommunityInteraction      
+      3  from app.models.community_paper import CommunityPaper
+      4  from app.models.paper_note import PaperNote
+      5  
+      5 -__all__ = ["ArxivPaper", "CommunityPaper", "PaperNote"]                
+      6 +__all__ = ["ArxivPaper", "CommunityInteraction", "CommunityPaper", "Pap
+        +erNote"]                                                               
+
+⏺ Write(app/services/community.py)
+  ⎿  Added 8 lines, removed 3 lines
+      17  from sqlalchemy import select
+      18  from sqlalchemy.ext.asyncio import AsyncSession
+      19  
+      20 +from app.models.community_interaction import CommunityInteraction     
+      21  from app.models.community_paper import CommunityPaper
+      22  
+      23  
+      24  async def track_interaction(arxiv_id: str, db: AsyncSession) -> None:
+      24 -    """Upsert a CommunityPaper record, incrementing the interaction co
+         -unt.                                                                  
+      25 +    """Upsert a CommunityPaper record and append a CommunityInteractio
+         +n event.                                                              
+      26  
+      27      Silently absorbs any DB errors so a tracking failure never breaks
+          the
+      28      calling endpoint.
+     ...
+      33          )
+      34          community = result.scalar_one_or_none()
+      35  
+      36 +        now = datetime.now(timezone.utc)                              
+      37 +                                                                      
+      38          if community:
+      39              community.interaction_count += 1
+      37 -            community.last_interacted_at = datetime.now(timezone.utc) 
+      40 +            community.last_interacted_at = now                        
+      41          else:
+      42              db.add(CommunityPaper(
+      43                  arxiv_id=arxiv_id,
+      44                  interaction_count=1,
+      42 -                last_interacted_at=datetime.now(timezone.utc),        
+      45 +                last_interacted_at=now,                               
+      46              ))
+      47  
+      48 +        db.add(CommunityInteraction(arxiv_id=arxiv_id, interacted_at=n
+         +ow))                                                                  
+      49 +                                                                      
+      50          await db.commit()
+      51      except Exception:
+      52          await db.rollback()
+
+⏺ Now update the router with the period parameter:
+
+⏺ Write(app/routers/community.py)
+  ⎿  Added 67 lines, removed 2 lines
+       1  """Community papers endpoints — surface the most actively engaged pape
+          rs."""
+       2  
+       3 +from datetime import datetime, timedelta, timezone                    
+       4 +from enum import Enum                                                 
+       5 +                                                                      
+       6  from fastapi import APIRouter, Depends, HTTPException, Query
+       4 -from sqlalchemy import desc, select                                   
+       7 +from sqlalchemy import desc, func, select                             
+       8  from sqlalchemy.ext.asyncio import AsyncSession
+       9  
+      10  from app.auth import get_api_key
+      11  from app.database import get_db
+      12  from app.models.arxiv_paper import ArxivPaper
+      13 +from app.models.community_interaction import CommunityInteraction     
+      14  from app.models.community_paper import CommunityPaper
+      15  from app.schemas.community_paper import CommunityListResponse, Communi
+          tyPaperResponse
+      16  
+      17  router = APIRouter(prefix="/community", tags=["Community"], dependenci
+          es=[Depends(get_api_key)])
+      18  
+      19 +_PERIOD_DAYS = {"week": 7, "month": 30, "year": 365}                  
+      20  
+      21 +                                                                      
+      22 +class Period(str, Enum):                                              
+      23 +    week = "week"                                                     
+      24 +    month = "month"                                                   
+      25 +    year = "year"                                                     
+      26 +                                                                      
+      27 +                                                                      
+      28  @router.get(
+      29      "",
+      30      response_model=CommunityListResponse,
+      31      summary="List most popular papers",
+      32      description=(
+      33          "Returns papers ranked by community interaction count. "
+      34 +        "Use the `period` parameter to filter by a rolling time window
+         +: "                                                                   
+      35 +        "`week` (last 7 days), `month` (last 30 days), `year` (last 36
+         +5 days). "                                                            
+      36 +        "Omit `period` for all-time rankings. "                       
+      37          "A paper enters this index the first time it is directly acces
+          sed or summarised. "
+      38          "Count increments on: direct paper lookup, summarisation, and
+          related-papers queries."
+      39      ),
+     ...
+       43  )
+       44  async def list_community_papers(
+       45      limit: int = Query(default=20, ge=1, le=100, description="Number
+           of papers to return (max 100)"),
+       46 +    period: Period | None = Query(                                   
+       47 +        default=None,                                                
+       48 +        description="Rolling time window: week (7d), month (30d), yea
+          +r (365d). Omit for all-time.",                                       
+       49 +    ),                                                               
+       50      db: AsyncSession = Depends(get_db),
+       51  ) -> dict:
+       33 -    """Return the top papers by interaction count, joined with corpus
+          - metadata."""                                                        
+       52 +    """Return the top papers by interaction count for the given perio
+          +d (or all-time)."""                                                  
+       53 +    if period is not None:                                           
+       54 +        cutoff = datetime.now(timezone.utc) - timedelta(days=_PERIOD_
+          +DAYS[period])                                                        
+       55 +                                                                     
+       56 +        result = await db.execute(                                   
+       57 +            select(CommunityInteraction.arxiv_id, func.count().label(
+          +"count"))                                                            
+       58 +            .where(CommunityInteraction.interacted_at >= cutoff)     
+       59 +            .group_by(CommunityInteraction.arxiv_id)                 
+       60 +            .order_by(desc("count"))                                 
+       61 +            .limit(limit)                                            
+       62 +        )                                                            
+       63 +        period_rows = result.all()                                   
+       64 +                                                                     
+       65 +        if not period_rows:                                          
+       66 +            return {"total": 0, "papers": []}                        
+       67 +                                                                     
+       68 +        arxiv_ids = [row.arxiv_id for row in period_rows]            
+       69 +                                                                     
+       70 +        paper_result = await db.execute(                             
+       71 +            select(ArxivPaper).where(ArxivPaper.arxiv_id.in_(arxiv_id
+          +s))                                                                  
+       72 +        )                                                            
+       73 +        papers = {p.arxiv_id: p for p in paper_result.scalars().all()
+          +}                                                                    
+       74 +                                                                     
+       75 +        community_result = await db.execute(                         
+       76 +            select(CommunityPaper).where(CommunityPaper.arxiv_id.in_(
+          +arxiv_ids))                                                          
+       77 +        )                                                            
+       78 +        community_map = {c.arxiv_id: c for c in community_result.scal
+          +ars().all()}                                                         
+       79 +                                                                     
+       80 +        response_papers = []                                         
+       81 +        for row in period_rows:                                      
+       82 +            paper = papers.get(row.arxiv_id)                         
+       83 +            community = community_map.get(row.arxiv_id)              
+       84 +            if paper and community:                                  
+       85 +                response_papers.append(CommunityPaperResponse(       
+       86 +                    arxiv_id=row.arxiv_id,                           
+       87 +                    interaction_count=row.count,                     
+       88 +                    last_interacted_at=community.last_interacted_at, 
+       89 +                    title=paper.title,                               
+       90 +                    authors=paper.authors,                           
+       91 +                    categories=paper.categories,                     
+       92 +                    year=paper.year,                                 
+       93 +                    url=paper.url,                                   
+       94 +                ))                                                   
+       95 +                                                                     
+       96 +        return {"total": len(response_papers), "papers": response_pap
+          +ers}                                                                 
+       97 +                                                                     
+       98 +    # All-time: rank by CommunityPaper.interaction_count             
+       99      result = await db.execute(
+      100          select(CommunityPaper)
+      101          .order_by(desc(CommunityPaper.interaction_count))
+
+⏺ Now the Alembic migration:
+
+⏺ Write(alembic/versions/e5f6a7b8c9d0_add_community_interactions_table.py)
+  ⎿  Wrote 37 lines to
+     alembic/versions/e5f6a7b8c9d0_add_community_interactions_table.py
+       1 """add community_interactions table
+       2
+       3 Revision ID: e5f6a7b8c9d0
+       4 Revises: c9e2f1a3b4d5
+       5 Create Date: 2026-03-11 00:00:00.000000
+       6
+       7 """
+       8 from typing import Sequence, Union
+       9
+      10 import sqlalchemy as sa
+     … +27 lines (ctrl+o to expand)
+
+⏺ Now update the tests:
+
+⏺ Write(tests/test_community.py)
+  ⎿  Added 76 lines
+       1  """Tests for community papers endpoints and interaction tracking."""
+       2  
+       3 +from datetime import datetime, timedelta, timezone                    
+       4 +                                                                      
+       5  import pytest
+       6  from httpx import AsyncClient
+       7  
+       8 +from app.models.community_interaction import CommunityInteraction     
+       9 +from app.models.community_paper import CommunityPaper                 
+      10 +from tests.conftest import test_session                               
+      11  
+      12 +                                                                      
+      13  @pytest.mark.asyncio
+      14  async def test_community_empty(client: AsyncClient) -> None:
+      15      """GET /community returns empty list when no interactions have occ
+          urred."""
+     ...
+       95      """Community endpoints require a valid API key."""
+       96      response = await client.get("/community", headers={"X-API-Key": "
+           wrong"})
+       97      assert response.status_code == 401
+       98 +                                                                     
+       99 +                                                                     
+      100 +@pytest.mark.asyncio                                                 
+      101 +async def test_community_period_week(client: AsyncClient, sample_pape
+          +rs) -> None:                                                         
+      102 +    """period=week only counts interactions from the last 7 days.""" 
+      103 +    await client.get("/papers/1706.03762")                           
+      104 +                                                                     
+      105 +    response = await client.get("/community?period=week")            
+      106 +    assert response.status_code == 200                               
+      107 +    data = response.json()                                           
+      108 +    assert data["total"] == 1                                        
+      109 +    assert data["papers"][0]["arxiv_id"] == "1706.03762"             
+      110 +    assert data["papers"][0]["interaction_count"] == 1               
+      111 +                                                                     
+      112 +                                                                     
+      113 +@pytest.mark.asyncio                                                 
+      114 +async def test_community_period_excludes_old_interactions(client: Asy
+          +ncClient, sample_papers) -> None:                                    
+      115 +    """Interactions older than the period window are excluded from pe
+          +riod rankings."""                                                    
+      116 +    old_timestamp = datetime.now(timezone.utc) - timedelta(days=60)  
+      117 +                                                                     
+      118 +    async with test_session() as session:                            
+      119 +        # Paper A has 5 interactions but all 60 days ago (outside mon
+          +th window)                                                           
+      120 +        session.add(CommunityPaper(arxiv_id="1706.03762", interaction
+          +_count=5, last_interacted_at=old_timestamp))                         
+      121 +        for _ in range(5):                                           
+      122 +            session.add(CommunityInteraction(arxiv_id="1706.03762", i
+          +nteracted_at=old_timestamp))                                         
+      123 +        # Paper B has 1 recent interaction                           
+      124 +        session.add(CommunityPaper(arxiv_id="1810.04805", interaction
+          +_count=1, last_interacted_at=datetime.now(timezone.utc)))            
+      125 +        session.add(CommunityInteraction(arxiv_id="1810.04805"))     
+      126 +        await session.commit()                                       
+      127 +                                                                     
+      128 +    response = await client.get("/community?period=month")           
+      129 +    assert response.status_code == 200                               
+      130 +    data = response.json()                                           
+      131 +    assert data["total"] == 1                                        
+      132 +    assert data["papers"][0]["arxiv_id"] == "1810.04805"             
+      133 +                                                                     
+      134 +                                                                     
+      135 +@pytest.mark.asyncio                                                 
+      136 +async def test_community_period_ranking(client: AsyncClient, sample_p
+          +apers) -> None:                                                      
+      137 +    """period ranking reflects interaction count within the window, n
+          +ot all-time."""                                                      
+      138 +    now = datetime.now(timezone.utc)                                 
+      139 +    old = now - timedelta(days=400)  # outside year window           
+      140 +                                                                     
+      141 +    async with test_session() as session:                            
+      142 +        # Paper A: 10 all-time but 9 are over a year old, 1 recent   
+      143 +        session.add(CommunityPaper(arxiv_id="1706.03762", interaction
+          +_count=10, last_interacted_at=now))                                  
+      144 +        for _ in range(9):                                           
+      145 +            session.add(CommunityInteraction(arxiv_id="1706.03762", i
+          +nteracted_at=old))                                                   
+      146 +        session.add(CommunityInteraction(arxiv_id="1706.03762", inter
+          +acted_at=now))                                                       
+      147 +        # Paper B: 3 all-time, all recent                            
+      148 +        session.add(CommunityPaper(arxiv_id="1810.04805", interaction
+          +_count=3, last_interacted_at=now))                                   
+      149 +        for _ in range(3):                                           
+      150 +            session.add(CommunityInteraction(arxiv_id="1810.04805", i
+          +nteracted_at=now))                                                   
+      151 +        await session.commit()                                       
+      152 +                                                                     
+      153 +    # All-time: paper A wins (10 vs 3)                               
+      154 +    alltime = await client.get("/community")                         
+      155 +    assert alltime.json()["papers"][0]["arxiv_id"] == "1706.03762"   
+      156 +                                                                     
+      157 +    # Year window: paper B wins (3 vs 1)                             
+      158 +    year = await client.get("/community?period=year")                
+      159 +    assert year.json()["papers"][0]["arxiv_id"] == "1810.04805"      
+      160 +                                                                     
+      161 +                                                                     
+      162 +@pytest.mark.asyncio                                                 
+      163 +async def test_community_period_empty(client: AsyncClient) -> None:  
+      164 +    """period filter returns empty list when no interactions fall wit
+          +hin the window."""                                                   
+      165 +    response = await client.get("/community?period=week")            
+      166 +    assert response.status_code == 200                               
+      167 +    assert response.json()["total"] == 0                             
+
+⏺ Bash(source venv/bin/activate && pytest tests/test_community.py -v 2>&1)
+  ⎿  ============================= test session starts ===========================
+     ===
+     platform darwin -- Python 3.12.5, pytest-9.0.2, pluggy-1.6.0 -- /Users/belaly
+     … +24 lines (ctrl+o to expand)
+  ⎿  (timeout 1m)
+
+⏺ 12/12 passing. Let me run the full test suite to confirm nothing else broke:
+
+⏺ Bash(source venv/bin/activate && pytest tests/ -v 2>&1)
+  ⎿  ============================= test session starts ===========================
+     ===
+     platform darwin -- Python 3.12.5, pytest-9.0.2, pluggy-1.6.0 -- /Users/belaly
+     … +55 lines (ctrl+o to expand)
+  ⎿  (timeout 1m)
+
+⏺ 42/42 passing. Here's a summary of what was done:
+
+  New files:
+  - app/models/community_interaction.py — CommunityInteraction table: one row per event
+   with arxiv_id + interacted_at
+  - alembic/versions/e5f6a7b8c9d0_add_community_interactions_table.py — migration to
+  create the table
+
+  Updated files:
+  - app/models/__init__.py — exports CommunityInteraction so test DB picks it up
+  - app/services/community.py — track_interaction now also inserts a
+  CommunityInteraction row on every event
+  - app/routers/community.py — GET /community gains a period query param
+  (week/month/year); when set, it aggregates from the interaction log using a rolling
+  cutoff; omitting it keeps all-time behaviour unchanged
+  - tests/test_community.py — 4 new tests covering period filtering, exclusion of old
+  interactions, and correct ranking within a window
+
+  Don't forget to run alembic upgrade head to apply the migration to your live DB.
+
+✻ Crunched for 3m 33s
+
+❯ do whatever updates you need like the migrations, also to the claude.md, to the api  
+docs, to the read.me and anything else relevant.                                       
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Bash(source venv/bin/activate && alembic upgrade head 2>&1)
+  ⎿  INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+     INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+     INFO  [alembic.runtime.migration] Running upgrade c9e2f1a3b4d5 -> e5f6a7b8c9d
+     0, add community_interactions table
+
+⏺ Migration applied. Now let me export the updated OpenAPI spec and check the MCP
+  server:
+
+⏺ Bash(source venv/bin/activate && python -c "
+      import json, os…)
+  ⎿  done
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ Now I'll update everything in parallel — MCP server, README, and CLAUDE.md:
+
+⏺ Update(mcp_server.py)
+  ⎿  Added 1 line
+      22  from app.agents.summariser import summarise_text as _summarise_text
+      23  from app.database import async_session
+      24  from app.models.arxiv_paper import ArxivPaper
+      25 +from app.models.community_interaction import CommunityInteraction     
+      26  from app.models.community_paper import CommunityPaper
+      27  from app.models.paper_note import PaperNote
+      28  from app.services.community import track_interaction
+
+⏺ Update(mcp_server.py)
+  ⎿  Added 1 line
+       6  
+       7  import json
+       8  import os
+       9 +from datetime import datetime, timedelta, timezone                    
+      10  from pathlib import Path
+      11  
+      12  # Ensure working directory is the project root so the SQLite path reso
+          lves correctly
+
+⏺ Update(mcp_server.py)
+  ⎿  Added 1 line, removed 1 line
+      17  load_dotenv()
+      18  
+      19  from mcp.server.fastmcp import FastMCP
+      20 -from sqlalchemy import func, select                                   
+      20 +from sqlalchemy import desc, func, select                             
+      21  
+      22  from app.agents.classifier_optimiser import classify_and_optimise
+      23  from app.agents.summariser import summarise_text as _summarise_text
+
+⏺ Update(mcp_server.py)
+  ⎿  Added 72 lines, removed 22 lines
+      206          return f"Error finding related papers: {exc}"
+      207  
+      208  
+      209 +_PERIOD_DAYS = {"week": 7, "month": 30, "year": 365}                 
+      210 +                                                                     
+      211 +                                                                     
+      212  @mcp.tool()
+      210 -async def get_community_papers(limit: int = 10) -> str:              
+      213 +async def get_community_papers(limit: int = 10, period: str | None = 
+          +None) -> str:                                                        
+      214      """Get the most actively engaged papers in the community, ranked
+           by interaction count.
+      215  
+      216      Papers enter the community index when they are looked up, summari
+           sed, or used
+      217      in a related-papers query — by any user or agent. Useful for disc
+           overing what
+      218      the community is currently reading and researching.
+      219 +                                                                     
+      220 +    Args:                                                            
+      221 +        limit: Number of papers to return (1-100, default 10).       
+      222 +        period: Rolling time window — "week" (7d), "month" (30d), or 
+          +"year" (365d).                                                       
+      223 +                Omit for all-time rankings.                          
+      224      """
+      225 +    if period is not None and period not in _PERIOD_DAYS:            
+      226 +        return f"Invalid period '{period}'. Use 'week', 'month', 'yea
+          +r', or omit for all-time."                                           
+      227 +                                                                     
+      228 +    limit = max(1, min(limit, 100))                                  
+      229 +                                                                     
+      230      try:
+      231          async with async_session() as db:
+      219 -            result = await db.execute(                               
+      220 -                select(CommunityPaper, ArxivPaper)                   
+      221 -                .join(ArxivPaper, CommunityPaper.arxiv_id == ArxivPap
+          -er.arxiv_id)                                                         
+      222 -                .order_by(CommunityPaper.interaction_count.desc())   
+      223 -                .limit(max(1, min(limit, 100)))                      
+      224 -            )                                                        
+      225 -            rows = result.all()                                      
+      232 +            if period is not None:                                   
+      233 +                cutoff = datetime.now(timezone.utc) - timedelta(days=
+          +_PERIOD_DAYS[period])                                                
+      234 +                agg_result = await db.execute(                       
+      235 +                    select(CommunityInteraction.arxiv_id, func.count(
+          +).label("count"))                                                    
+      236 +                    .where(CommunityInteraction.interacted_at >= cuto
+          +ff)                                                                  
+      237 +                    .group_by(CommunityInteraction.arxiv_id)         
+      238 +                    .order_by(desc("count"))                         
+      239 +                    .limit(limit)                                    
+      240 +                )                                                    
+      241 +                period_rows = agg_result.all()                       
+      242  
+      227 -        if not rows:                                                 
+      228 -            return "No papers in the community index yet."           
+      243 +                if not period_rows:                                  
+      244 +                    return f"No community interactions in the past {p
+          +eriod}."                                                             
+      245  
+      230 -        output = [                                                   
+      231 -            {                                                        
+      232 -                "arxiv_id": community.arxiv_id,                      
+      233 -                "interaction_count": community.interaction_count,    
+      234 -                "last_interacted_at": str(community.last_interacted_a
+          -t),                                                                  
+      235 -                "title": paper.title,                                
+      236 -                "authors": paper.authors,                            
+      237 -                "year": paper.year,                                  
+      238 -                "url": paper.url,                                    
+      239 -            }                                                        
+      240 -            for community, paper in rows                             
+      241 -        ]                                                            
+      246 +                arxiv_ids = [r.arxiv_id for r in period_rows]        
+      247 +                count_map = {r.arxiv_id: r.count for r in period_rows
+          +}                                                                    
+      248 +                                                                     
+      249 +                paper_result = await db.execute(                     
+      250 +                    select(ArxivPaper).where(ArxivPaper.arxiv_id.in_(
+          +arxiv_ids))                                                          
+      251 +                )                                                    
+      252 +                papers = {p.arxiv_id: p for p in paper_result.scalars
+          +().all()}                                                            
+      253 +                                                                     
+      254 +                output = [                                           
+      255 +                    {                                                
+      256 +                        "arxiv_id": aid,                             
+      257 +                        "interaction_count": count_map[aid],         
+      258 +                        "period": period,                            
+      259 +                        "title": papers[aid].title if aid in papers e
+          +lse None,                                                            
+      260 +                        "authors": papers[aid].authors if aid in pape
+          +rs else None,                                                        
+      261 +                        "year": papers[aid].year if aid in papers els
+          +e None,                                                              
+      262 +                        "url": papers[aid].url if aid in papers else 
+          +None,                                                                
+      263 +                    }                                                
+      264 +                    for aid in arxiv_ids                             
+      265 +                    if aid in papers                                 
+      266 +                ]                                                    
+      267 +            else:                                                    
+      268 +                result = await db.execute(                           
+      269 +                    select(CommunityPaper, ArxivPaper)               
+      270 +                    .join(ArxivPaper, CommunityPaper.arxiv_id == Arxi
+          +vPaper.arxiv_id)                                                     
+      271 +                    .order_by(CommunityPaper.interaction_count.desc()
+          +)                                                                    
+      272 +                    .limit(limit)                                    
+      273 +                )                                                    
+      274 +                rows = result.all()                                  
+      275 +                                                                     
+      276 +                if not rows:                                         
+      277 +                    return "No papers in the community index yet."   
+      278 +                                                                     
+      279 +                output = [                                           
+      280 +                    {                                                
+      281 +                        "arxiv_id": community.arxiv_id,              
+      282 +                        "interaction_count": community.interaction_co
+          +unt,                                                                 
+      283 +                        "last_interacted_at": str(community.last_inte
+          +racted_at),                                                          
+      284 +                        "title": paper.title,                        
+      285 +                        "authors": paper.authors,                    
+      286 +                        "year": paper.year,                          
+      287 +                        "url": paper.url,                            
+      288 +                    }                                                
+      289 +                    for community, paper in rows                     
+      290 +                ]                                                    
+      291 +                                                                     
+      292          return json.dumps(output, indent=2, default=str)
+      293  
+      294      except Exception as exc:
+
+⏺ Now update README and CLAUDE.md:
+
+⏺ Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      76  | POST | `/summarise` | Summarise any academic text via Gemini. Rate l
+          imited 5/min |
+      77  | GET | `/papers/{arxiv_id}` | Get a paper from the corpus by arXiv ID
+           |
+      78  | GET | `/papers/{arxiv_id}/related` | Find related papers via BGE vec
+          tor similarity |
+      79 -| GET | `/community` | List most popular papers ranked by interaction 
+         -count |                                                               
+      79 +| GET | `/community` | List most popular papers ranked by interaction 
+         +count. Optional `period=week\|month\|year` for rolling window |       
+      80  | GET | `/community/{arxiv_id}` | Get community interaction stats for
+          a specific paper |
+      81  | POST | `/papers/{arxiv_id}/notes` | Add a public note to a paper. Ra
+          te limited 10/min |
+      82  | GET | `/papers/{arxiv_id}/notes` | List all public notes on a paper
+          |
+
+⏺ Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      101  pytest tests/ -v
+      102  ```
+      103  
+      104 -38 tests across 7 test files covering: happy paths, validation errors
+          - (422), not found (404), external service failures (500), rate limiti
+          -ng, and authentication (401).                                        
+      104 +42 tests across 7 test files covering: happy paths, validation errors
+          + (422), not found (404), external service failures (500), rate limiti
+          +ng, authentication (401), and community period filtering.            
+      105  
+      106  ## MCP Server (Claude Desktop)
+      107  
+
+⏺ Update(README.md)
+  ⎿  Added 1 line, removed 1 line
+      30  
+      31  Summarisation is handled separately by a **Summariser Agent** (`gemini
+          -2.5-pro`). All Gemini calls have graceful fallbacks — the pipeline de
+          grades safely if the LLM is unavailable.
+      32  
+      33 -Community interaction tracking is automatic: any paper accessed via lo
+         -okup, summarisation, or related-papers search is recorded in a communi
+         -ty index, enabling discovery of trending papers.                      
+      33 +Community interaction tracking is automatic: every paper access via lo
+         +okup, summarisation, or related-papers search is recorded as a timesta
+         +mped event in a `community_interactions` log. This enables both all-ti
+         +me rankings and rolling time-window queries (`week` / `month` / `year`
+         +) on `GET /community`.                                                
+      34  
+      35  ## Setup
+      36  
+
+⏺ Now CLAUDE.md:
+
+⏺ Update(CLAUDE.md)
+  ⎿  Added 1 line, removed 1 line
+      35  | POST | `/summarise` | Summarise any text; optional `arxiv_id` tracks
+           community interaction. Rate limited 5/min |
+      36  | GET | `/papers/{arxiv_id}` | Get a paper from the corpus by arXiv ID
+          . Tracks community interaction |
+      37  | GET | `/papers/{arxiv_id}/related` | Find related papers via BGE vec
+          tor similarity. Tracks community interaction |
+      38 -| GET | `/community` | List most popular papers ranked by interaction 
+         -count |                                                               
+      38 +| GET | `/community` | List most popular papers ranked by interaction 
+         +count. Optional `period=week\|month\|year` for rolling window |       
+      39  | GET | `/community/{arxiv_id}` | Get community interaction stats for
+          a specific paper |
+      40  | POST | `/papers/{arxiv_id}/notes` | Add a public note to a paper. Ra
+          te limited 10/min |
+      41  | GET | `/papers/{arxiv_id}/notes` | List all public notes on a paper
+          |
+
+⏺ Update(CLAUDE.md)
+  ⎿  Added 1 line, removed 1 line
+      55  | `search_papers` | Agentic classify + optimise + BGE vector search |
+      56  | `summarise_text` | Gemini-powered summarisation |
+      57  | `find_related_papers` | BGE vector similarity search for related pap
+          ers. Tracks community interaction |
+      58 -| `get_community_papers` | List trending papers ranked by interaction 
+         -count |                                                               
+      58 +| `get_community_papers` | List trending papers ranked by interaction 
+         +count. Optional `period` param for rolling window |                   
+      59  | `get_paper_notes` | Retrieve all public community notes for a paper
+          |
+      60  
+      61  ### MCP Resources
+
+
+⏺ Update(CLAUDE.md)
+  ⎿  Added 1 line, removed 1 line
+      127  - Run `pytest tests/ -v` after every change — 0 failures allowed
+      128  - Tests use in-memory SQLite and mock all external APIs (Gemini, Chro
+           maDB)
+      129  - Cover: happy path, invalid input (422), not found (404), external f
+           ailure (500), graceful fallback
+      130 -- 38 tests across 7 test files                                       
+      130 +- 42 tests across 7 test files                                       
+      131  
+      132  ## Quality Bar — Targeting 90-100
+      133  
+
+⏺ Now update the DB schema section in CLAUDE.md to mention the new table, and run a
+  final test to confirm everything still passes:
+
+⏺ Searched for 1 pattern (ctrl+o to expand)
+
+⏺ Bash(source venv/bin/activate && pytest tests/ -v 2>&1 | tail -15)
+  ⎿  tests/test_search.py::test_search_missing_query_returns_422 PASSED       [ 85
+     %]
+     tests/test_search.py::test_search_vector_failure_returns_500 PASSED      [ 88
+     … +19 lines (ctrl+o to expand)
+
+⏺ 42/42. Here's everything that was done:
+
+  Migration
+  - alembic upgrade head applied — community_interactions table now exists in
+  deepresearch.db
+
+  Code
+  - mcp_server.py — get_community_papers now accepts an optional period param
+  (week/month/year), queries CommunityInteraction when set, falls back to all-time
+  CommunityPaper when not
+
+  Docs / specs
+  - docs/openapi.json — regenerated with the new period query param on GET /community
+
+  Documentation
+  - README.md — updated /community endpoint description, architecture blurb, and test
+  count (38 → 42)
+  - CLAUDE.md — updated /community endpoint table, MCP tools table, and test count

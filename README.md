@@ -30,14 +30,14 @@ The API is built around a **3-stage agentic pipeline**:
 
 Summarisation is handled separately by a **Summariser Agent** (`gemini-2.5-pro`). All Gemini calls have graceful fallbacks — the pipeline degrades safely if the LLM is unavailable.
 
-Community interaction tracking is automatic: any paper accessed via lookup, summarisation, or related-papers search is recorded in a community index, enabling discovery of trending papers.
+Community interaction tracking is automatic: every paper access via lookup, summarisation, or related-papers search is recorded as a timestamped event in a `community_interactions` log. This enables both all-time rankings and rolling time-window queries (`week` / `month` / `year`) on `GET /community`.
 
 ## Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/<your-username>/research-agent.git
-cd research-agent
+git clone https://github.com/belalyahouni/DeepResearch.git
+cd DeepResearch
 
 # Create and activate virtual environment
 python -m venv venv
@@ -76,7 +76,7 @@ All endpoints except `/health` require the `X-API-Key` header.
 | POST | `/summarise` | Summarise any academic text via Gemini. Rate limited 5/min |
 | GET | `/papers/{arxiv_id}` | Get a paper from the corpus by arXiv ID |
 | GET | `/papers/{arxiv_id}/related` | Find related papers via BGE vector similarity |
-| GET | `/community` | List most popular papers ranked by interaction count |
+| GET | `/community` | List most popular papers ranked by interaction count. Optional `period=week\|month\|year` for rolling window |
 | GET | `/community/{arxiv_id}` | Get community interaction stats for a specific paper |
 | POST | `/papers/{arxiv_id}/notes` | Add a public note to a paper. Rate limited 10/min |
 | GET | `/papers/{arxiv_id}/notes` | List all public notes on a paper |
@@ -101,7 +101,7 @@ Tests use an in-memory SQLite database and mock all external APIs (Gemini, Chrom
 pytest tests/ -v
 ```
 
-38 tests across 7 test files covering: happy paths, validation errors (422), not found (404), external service failures (500), rate limiting, and authentication (401).
+42 tests across 7 test files covering: happy paths, validation errors (422), not found (404), external service failures (500), rate limiting, authentication (401), and community period filtering.
 
 ## MCP Server (Claude Desktop)
 

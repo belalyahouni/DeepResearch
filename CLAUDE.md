@@ -35,7 +35,7 @@ FastAPI + SQLite + ChromaDB + Gemini + arXiv corpus. University coursework (COMP
 | POST | `/summarise` | Summarise any text; optional `arxiv_id` tracks community interaction. Rate limited 5/min |
 | GET | `/papers/{arxiv_id}` | Get a paper from the corpus by arXiv ID. Tracks community interaction |
 | GET | `/papers/{arxiv_id}/related` | Find related papers via BGE vector similarity. Tracks community interaction |
-| GET | `/community` | List most popular papers ranked by interaction count |
+| GET | `/community` | List most popular papers ranked by interaction count. Optional `period=week\|month\|year` for rolling window |
 | GET | `/community/{arxiv_id}` | Get community interaction stats for a specific paper |
 | POST | `/papers/{arxiv_id}/notes` | Add a public note to a paper. Rate limited 10/min |
 | GET | `/papers/{arxiv_id}/notes` | List all public notes on a paper |
@@ -55,7 +55,7 @@ The project exposes an MCP (Model Context Protocol) server for use with Claude D
 | `search_papers` | Agentic classify + optimise + BGE vector search |
 | `summarise_text` | Gemini-powered summarisation |
 | `find_related_papers` | BGE vector similarity search for related papers. Tracks community interaction |
-| `get_community_papers` | List trending papers ranked by interaction count |
+| `get_community_papers` | List trending papers ranked by interaction count. Optional `period` param for rolling window |
 | `get_paper_notes` | Retrieve all public community notes for a paper |
 
 ### MCP Resources
@@ -127,7 +127,7 @@ API_KEY=
 - Run `pytest tests/ -v` after every change — 0 failures allowed
 - Tests use in-memory SQLite and mock all external APIs (Gemini, ChromaDB)
 - Cover: happy path, invalid input (422), not found (404), external failure (500), graceful fallback
-- 38 tests across 7 test files
+- 42 tests across 7 test files
 
 ## Quality Bar — Targeting 90-100
 
