@@ -149,16 +149,23 @@ async def search_papers(query: str) -> str:
 
 
 @mcp.tool()
-async def summarise_text(text: str) -> str:
+async def summarise_text(text: str, arxiv_id: str | None = None) -> str:
     """Summarise academic text (abstract or full paper) using the Gemini summariser agent.
 
     For abstracts (short text): returns a 1-sentence summary.
     For full papers (long text): returns a 2-sentence summary.
+
+    Optionally provide arxiv_id to track community interaction for the paper.
     """
     try:
         summary = await _summarise_text(text)
         if summary is None:
             return "Error: summarisation failed — Gemini unavailable or returned an error."
+
+        if arxiv_id:
+            async with async_session() as db:
+                await track_interaction(arxiv_id, db)
+
         return summary
     except Exception as exc:
         return f"Error summarising text: {exc}"

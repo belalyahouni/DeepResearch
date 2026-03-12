@@ -57,7 +57,7 @@ The project exposes an MCP (Model Context Protocol) server for use with Claude D
 | Tool | Description |
 |---|---|
 | `search_papers` | Agentic classify + optimise + BGE vector search |
-| `summarise_text` | Gemini-powered summarisation |
+| `summarise_text` | Gemini-powered summarisation. Optional `arxiv_id` tracks community interaction |
 | `find_related_papers` | BGE vector similarity search for related papers. Tracks community interaction |
 | `get_community_papers` | List trending papers ranked by interaction count. Optional `period` param |
 | `get_paper_notes` | Retrieve all public community notes for a paper |
