@@ -153,4 +153,4 @@ This opens the MCP Inspector — a web UI for calling tools and reading resource
 
 - Interactive Swagger UI: `http://localhost:8000/docs`
 - OpenAPI spec: [`docs/openapi.json`](docs/openapi.json)
-- Exported PDF: [`docs/openapi.pdf`](docs/openapi.pdf)
+- Exported PDF: [`docs/API_Swagger_UI.pdf`](docs/API_Swagger_UI.pdf)

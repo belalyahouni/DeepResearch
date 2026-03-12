@@ -160,7 +160,7 @@ API_KEY=
 |---|---|
 | `technical_report.md` | Draft technical report (convert to PDF for submission) |
 | `report_notes.md` | Comprehensive source notes for the report — all decisions, justifications, context |
-| `docs/openapi.pdf` | Exported Swagger API documentation PDF |
+| `docs/API_Swagger_UI.pdf` | Exported Swagger API documentation PDF |
 | `docs/openapi.json` | OpenAPI spec |
 | `AUTHENTICATION.md` | Auth and security details |
 | `mcp_server.py` | MCP server entry point |
@@ -171,7 +171,7 @@ API_KEY=
 ### Code & API
 - [x] README.md — project overview, setup, endpoints, tests
 - [x] Swagger polish — descriptions, parameter docs, error codes on all endpoints
-- [x] Export Swagger to PDF — `docs/openapi.json` + `docs/openapi.pdf`
+- [x] Export Swagger to PDF — `docs/openapi.json` + `docs/API_Swagger_UI.pdf`
 - [x] CRUD — `PaperNote` (full CRUD) + `CommunityPaper` (create/read/update via interaction tracking)
 - [x] Full corpus ingest — ~521k papers in SQLite + ChromaDB
 - [x] Community period filtering — `period=week|month|year` on `GET /community`
@@ -184,7 +184,7 @@ API_KEY=
 ### Submission Checklist (pass/fail gates)
 - [x] Public GitHub repo with visible commit history
 - [x] README.md present
-- [x] API documentation exported as PDF (in repo at `docs/openapi.pdf`)
+- [x] API documentation exported as PDF (in repo at `docs/API_Swagger_UI.pdf`)
 - [ ] Technical report PDF submitted via Minerva (with GenAI declaration + conversation logs appendix)
 - [x] Code runs locally (`uvicorn app.main:app --reload`)
 - [x] All tests pass (`pytest tests/ -v`)
