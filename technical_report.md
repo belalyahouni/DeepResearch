@@ -10,89 +10,89 @@
 
 ---
 
-## 1. Introduction & Motivation
+## 1. Introduction and Motivation
 
-Finding relevant academic papers is harder than it should be. During independent research — both during a dissertation and across an internship — a recurring problem emerged: keyword search is fundamentally broken for anyone new to a field. Different authors describing the same concept use completely different terminology, meaning two semantically related papers may share no keywords at all. To search effectively, you must already know the vocabulary of the field you are trying to learn. This is a catch-22 that keyword-based search engines such as standard arXiv search and Google Scholar do not resolve.
+Finding relevant research papers is harder than it should be. During a dissertation and later an internship, the same problem kept appearing: keyword search fails for anyone new to a field. Different authors writing about the same concept use different words, so two closely related papers may share no keywords at all. To search well, you already need to know the vocabulary of the field you are trying to learn. Standard tools like arXiv search and Google Scholar do not solve this.
 
-DeepResearch addresses this directly. It is an agentic research assistant API that accepts natural language queries and returns semantically relevant AI/ML papers from a local arXiv corpus of approximately 521,000 papers. Users can describe a concept in plain English — without knowing the correct academic terminology — and receive ranked results via cosine similarity search over dense vector embeddings. The pipeline is further extended by a collaborative layer: a public notes system allows users to annotate papers, and a community interaction index surfaces which papers are being most actively engaged with across the API, providing a real-time proxy for research trends.
+DeepResearch is a research assistant API built around this problem. It accepts natural language queries and returns semantically relevant AI/ML papers from a local arXiv corpus of around 521,000 papers. Users can describe what they are looking for in plain English and get ranked results back via cosine similarity search over dense vector embeddings. The system also includes a public notes layer for annotating papers, and a community interaction index that tracks which papers are being accessed most, giving a real-time signal for what the research community is currently interested in.
 
-The API is also exposed as a Model Context Protocol (MCP) server for Claude Desktop, enabling seamless integration into AI-assisted research workflows without requiring users to interact with HTTP endpoints directly.
-
----
-
-## 2. Technology Stack & Justification
-
-### 2.1 Language: Python
-
-Python was selected over the alternatives named in the brief (Node.js, Go) for two reasons. First, it is the language in which the developer has the deepest working knowledge, which was essential for reviewing, understanding, and correcting AI-generated code — a critical part of the development workflow described in Section 5. Second, Claude Code, the primary AI tool used throughout the project, produces demonstrably more accurate and reliable Python code than in other languages. Given that the development process relied heavily on AI-assisted implementation, choosing Python directly improved the quality and correctness of the output.
-
-### 2.2 Framework: FastAPI
-
-FastAPI was chosen over Django (the module's primary taught framework) and Flask. Django is better suited to full-stack applications with templating, an admin panel, and tightly coupled ORM tooling — none of which are relevant to a pure API. It also introduces significant boilerplate for a project of this scope. Flask is lighter but lacks async support and built-in schema validation. FastAPI provides automatic Swagger UI and OpenAPI documentation at `/docs` with no additional configuration, native async support throughout, and automatic request validation and serialisation via Pydantic integration. It also aligns with prior experience, enabling meaningful code review alongside AI-generated output.
-
-### 2.3 Database: SQLite with SQLAlchemy and Alembic
-
-SQLite was selected over PostgreSQL and MySQL. PostgreSQL is production-grade and designed for high-concurrency, distributed, or very large-scale deployments — all of which are out of scope for a locally hosted academic API. SQLite requires no server process, runs entirely as a file, and handles the read-heavy workloads of this project (paper metadata lookup, community stats, notes) without issue. SQLAlchemy provides an async ORM layer, and Alembic handles schema migrations. If a production deployment were required in future, the underlying database could be swapped to PostgreSQL with minimal changes to application code.
-
-### 2.4 Vector Database: ChromaDB
-
-The brief states that NoSQL databases should not be used without clear justification. ChromaDB is a purpose-built vector database — a category of NoSQL store — and its use here is architecturally necessary rather than a matter of preference.
-
-A relational database cannot efficiently perform approximate nearest-neighbour (ANN) search over 768-dimensional vectors. Cosine similarity search across hundreds of thousands of high-dimensional embeddings is the mechanism by which semantic search is implemented. SQL's paradigm — exact matching, indexed lookups, joins — is the wrong tool for this task. A vector database is therefore a requirement of the problem, not a stylistic choice.
-
-Among vector database options, two were seriously considered. FAISS (Facebook AI Similarity Search), with which the developer had prior experience, is a highly performant and customisable vector index library. However, it operates at a very low level: it provides no persistence, no ID-to-metadata mapping, and no Python-native management layer. All of this must be implemented manually. FAISS is the right choice when fine-grained control over index type and retrieval performance at extreme scale is needed. For a local, single-process system indexing ~521k papers, this level of complexity is unnecessary. ChromaDB provides HNSW indexing with cosine similarity, persistent on-disk storage, and a simple Python API out of the box. It is local, free, installs via pip, and requires no external services. It was the most appropriate tool for the problem.
-
-### 2.5 Embeddings: BAAI/bge-base-en-v1.5
-
-The BGE (BAAI General Embeddings) family of models from the Beijing Academy of Artificial Intelligence is specifically designed for retrieval tasks and consistently ranks among the top open-source embedding models on the MTEB (Massive Text Embedding Benchmark) leaderboard [Muennighoff et al., 2023]. The `bge-base-en-v1.5` variant produces 768-dimensional embeddings with approximately 110 million parameters. At this size it achieves strong retrieval quality while remaining efficient enough for local inference — achieving approximately 168 papers per second on Apple Silicon MPS during corpus ingestion.
-
-A key implementation detail is BGE's asymmetric encoding convention: the retrieval prefix `"Represent this sentence for searching relevant passages: "` is applied at query time but not at document indexing time. This is the recommended usage pattern documented in the model card and is correctly implemented in `app/services/embeddings.py`. The alternative of using OpenAI's embedding API was rejected because it would introduce per-query API cost, network latency on every search, and an external dependency — none of which are acceptable for a locally self-contained system.
-
-### 2.6 LLM: Google Gemini
-
-Google Gemini was selected over OpenAI's models and locally hosted open-source LLMs. The free tier provides generous rate limits sufficient for this project. Critically, Gemini offers a range of model sizes that map naturally onto the different task complexities within the pipeline: `gemini-2.5-flash-lite` is used for the classifier and optimiser agents, where speed and a straightforward structured output are required; `gemini-2.5-pro` is used for the summariser, where deeper reasoning over academic text is needed and output quality is the priority. Running open-source LLMs locally (Llama, Mistral) was considered but rejected — models small enough to run on consumer hardware are not sufficiently capable for reliable query classification and academic summarisation. The Gemini API provides access to much larger models at no cost within the project's usage levels.
-
-All Gemini calls are wrapped in try/except blocks with graceful fallbacks: the classifier returns the original query unchanged if the API is unavailable, and the summariser returns a 500 with a descriptive error. The pipeline degrades safely rather than failing entirely.
-
-### 2.7 API Style: REST
-
-A RESTful design was chosen over GraphQL. GraphQL's strengths — flexible field selection, batching, and nested query traversal — are most valuable when the data model is deeply nested and clients have highly variable data requirements. DeepResearch's resources (papers, notes, community stats) are shallow and well-defined. The overhead of a GraphQL schema, resolver layer, and query language is not justified. REST maps cleanly onto the resource structure and pairs naturally with OpenAPI/Swagger documentation.
-
-### 2.8 Dataset
-
-The arXiv corpus is sourced from the HuggingFace dataset `davanstrien/arxiv-cs-papers-classified` [van Strien, 2024], a structured and streamed subset of arXiv CS paper metadata. It was chosen because arXiv is the primary pre-print server for cutting-edge AI/ML research — the most significant papers in NLP, computer vision, reinforcement learning, and related fields appear here first. The metadata (title, authors, abstract, categories, year, DOI, URL) is rich enough to support search, summarisation, and community tracking without requiring full paper text. The dataset is filtered to seven AI/ML categories: `cs.AI`, `cs.LG`, `cs.CL`, `cs.CV`, `cs.NE`, `cs.MA`, and `stat.ML`, yielding approximately 521,000 papers. The underlying arXiv metadata is released under **CC0 (Creative Commons Zero — Public Domain)** [arXiv, 2025], making it appropriate for academic use without restriction.
+The API is additionally exposed as a Model Context Protocol (MCP) server for Claude Desktop. This lets the full research pipeline be used conversationally inside Claude, without touching HTTP endpoints directly.
 
 ---
 
-## 3. Architecture & Design
+## 2. Technology Stack and Justification
 
-*See Figure 1 (architecture diagram) — submitted alongside this report.*
+### 2.1 Python
 
-### 3.1 The Three-Stage Agentic Search Pipeline
+Python was chosen over Node.js and Go for two practical reasons. It is the language the developer knows best, which made it possible to review and correct AI-generated code with confidence. It is also the language Claude Code performs best in. Since AI-assisted coding was central to the workflow, using Python directly improved the reliability of the output.
 
-The central contribution of DeepResearch is its search pipeline. Rather than accepting a raw query and performing direct keyword or vector search, the pipeline passes the query through three sequential stages.
+### 2.2 FastAPI
 
-**Stage 1 — Classifier and Optimiser Agent.** A single call to `gemini-2.5-flash-lite` performs two tasks simultaneously, returning a structured JSON response: it classifies the query into one of the seven arXiv AI/ML categories, and it rewrites the query into precise academic retrieval terminology — removing personal context, filler words, and off-topic qualifiers. For example, a user query such as "how do transformers pay attention to words" is rewritten to "self-attention mechanisms in transformer architectures for sequence modelling". This optimised form matches the vocabulary actually present in paper titles and abstracts, improving the subsequent cosine similarity search. Combining classification and optimisation into one LLM call minimises latency and API usage.
+FastAPI was chosen over Django and Flask. Django is designed for full-stack applications with templating and admin tooling, none of which apply to a pure API. Flask lacks native async support and automatic request validation. FastAPI gives Swagger UI and OpenAPI documentation at `/docs` out of the box, has first-class async support, and handles request validation through Pydantic automatically. Prior experience with it also made code review straightforward.
 
-**Stage 2 — BGE Vector Embedding.** The optimised query is embedded using `bge-base-en-v1.5` with the BGE retrieval prefix. The result is a 768-dimensional normalised vector.
+### 2.3 SQLite with SQLAlchemy and Alembic
 
-**Stage 3 — ChromaDB Cosine Similarity Search.** The query vector is compared against the ~521k indexed paper embeddings using HNSW approximate nearest-neighbour search with cosine similarity. The top-N matching arXiv IDs and similarity scores are returned, and paper metadata is fetched from SQLite to produce the final ranked response.
+SQLite was chosen over PostgreSQL and MySQL. PostgreSQL is built for high-concurrency production systems, which is more than this project needs. SQLite runs as a single file with no server process, and handles the workloads here (paper lookups, community stats, notes reads and writes) without issue. SQLAlchemy provides an async ORM on top of it, and Alembic manages schema migrations. Switching to PostgreSQL in future would require minimal changes to application code.
 
-The motivation for building this pipeline, rather than calling an external search API, stems from experience with the OpenAlex semantic search API. Its limitations were: broad coverage across all academic disciplines (not focused on AI/ML), external API dependency with rate limits, and no ability to customise any component. A self-built pipeline allows independent improvement of each stage — embedding model, LLM prompts, similarity metric — and is entirely locally self-contained.
+### 2.4 ChromaDB (NoSQL justification)
+
+The brief flags that NoSQL databases require justification. ChromaDB is a vector database, a type of NoSQL store, and it is used here because there is no practical alternative for this task.
+
+A relational database cannot perform efficient approximate nearest-neighbour search over 768-dimensional vectors. Cosine similarity across hundreds of thousands of high-dimensional embeddings is how semantic search works. SQL is the wrong tool for this, so a vector database is a requirement of the problem rather than a preference.
+
+Two options were considered. FAISS (Facebook AI Similarity Search) was familiar from prior work and is highly performant, but it operates at a very low level. It has no built-in persistence, no ID-to-metadata mapping, and no management layer, all of which need to be implemented manually. FAISS makes sense when you need fine-grained control at extreme scale. For a local system indexing around 521k papers, that complexity is unnecessary. ChromaDB provides HNSW indexing with cosine similarity, persistent on-disk storage, and a simple Python API. It is free, installs via pip, and needs no external services. It was the right fit for this project.
+
+### 2.5 BAAI/bge-base-en-v1.5 Embeddings
+
+The BGE model family from the Beijing Academy of Artificial Intelligence is designed for retrieval tasks and ranks among the top open-source embedding models on the MTEB benchmark [Muennighoff et al., 2023]. The base variant produces 768-dimensional embeddings and runs efficiently on local hardware, achieving around 168 papers per second on Apple Silicon MPS during corpus ingestion.
+
+BGE uses an asymmetric encoding convention: a retrieval prefix is applied to queries at search time, but not to documents at indexing time. This is the recommended usage from the model card and is implemented correctly in `app/services/embeddings.py`. Using the OpenAI embedding API was ruled out because it adds per-query cost, network latency, and an external dependency to every search request.
+
+### 2.6 Google Gemini
+
+Gemini was chosen over OpenAI and locally hosted open-source models. The free tier has generous enough rate limits for this project. More importantly, Gemini offers different model sizes that map well onto the two different tasks in the pipeline. `gemini-2.5-flash-lite` is used for the classifier and optimiser, where speed matters and the output is structured JSON. `gemini-2.5-pro` is used for summarisation, where output quality over academic text is the priority. Running open-source models locally was considered, but models small enough to fit on consumer hardware are not capable enough for reliable classification and summarisation. The Gemini API gives access to much larger models at no cost within the project's usage.
+
+All Gemini calls have try/except blocks with graceful fallbacks. If the API is unavailable, the classifier returns the original query unchanged and the search still runs. The pipeline degrades safely rather than breaking.
+
+### 2.7 REST over GraphQL
+
+GraphQL's advantages (flexible field selection, nested query traversal) are most useful when data is deeply nested and client requirements vary significantly. DeepResearch's resources are shallow and well-defined. REST was the simpler and more appropriate choice, and pairs naturally with OpenAPI documentation.
+
+### 2.8 arXiv Dataset
+
+The corpus comes from the HuggingFace dataset `davanstrien/arxiv-cs-papers-classified` [van Strien, 2024], a structured subset of arXiv CS paper metadata. arXiv is where cutting-edge AI/ML research appears first, often before journal publication. The metadata available (title, authors, abstract, categories, year, DOI, URL) is enough to support search, summarisation, and community tracking without needing full paper text. The dataset is filtered to seven AI/ML categories (`cs.AI`, `cs.LG`, `cs.CL`, `cs.CV`, `cs.NE`, `cs.MA`, `stat.ML`), giving around 521,000 papers. The underlying arXiv metadata is released under CC0 (Public Domain) [arXiv, 2025], making it freely usable for academic purposes.
+
+---
+
+## 3. Architecture and Design
+
+*See Figure 1 (architecture diagram) submitted alongside this report.*
+
+### 3.1 Three-Stage Search Pipeline
+
+The search pipeline is the core of DeepResearch. Instead of searching the corpus directly with a raw query, it passes the input through three stages.
+
+**Stage 1: Classifier and Optimiser.** A single call to `gemini-2.5-flash-lite` both classifies the query into one of the seven arXiv AI/ML categories and rewrites it into precise academic language. For example, "how do transformers pay attention to words" becomes "self-attention mechanisms in transformer architectures for sequence modelling". The rewritten query matches the vocabulary in paper abstracts much more closely, improving retrieval quality. Doing both tasks in one LLM call keeps latency low and reduces API usage.
+
+**Stage 2: BGE Embedding.** The optimised query is embedded with `bge-base-en-v1.5` using the BGE retrieval prefix, producing a 768-dimensional normalised vector.
+
+**Stage 3: ChromaDB Similarity Search.** The query vector is compared against the indexed corpus using HNSW cosine similarity search. The top-N arxiv IDs and similarity scores are returned, and full paper metadata is fetched from SQLite to build the final response.
+
+This pipeline was built rather than calling an external search API because of direct experience with the OpenAlex semantic search API. Its limitations were: coverage across all academic disciplines (not focused on AI/ML), external rate limits, and no ability to customise any part of it. A self-built pipeline gives full control over every component and room to improve each one independently.
 
 ### 3.2 Community Interaction Index
 
-The community feature provides a real-time proxy for research trends. Inspiration came from social media: on platforms such as Twitter or Reddit, trending content is easy to identify from interaction signals (likes, shares, recency). In academic research, equivalent signals do not exist for pre-prints — citation counts only accumulate over years, long after a paper's initial relevance. The community index fills this gap organically: every paper access via `GET /papers/{arxiv_id}`, `POST /summarise` (with an arxiv_id), or `GET /papers/{arxiv_id}/related` is logged as a timestamped event in the `community_interactions` table. These events are aggregated into `community_papers` (total count and last activity timestamp).
+The idea came from social media. On platforms like Twitter or Reddit, it is easy to see what is trending from interaction signals. In academic research, this signal barely exists for pre-prints. Citation counts take years to accumulate. The community index creates a proxy for it: every time a paper is accessed via direct lookup, summarisation, or related-papers search, the event is logged with a timestamp. These events are aggregated into per-paper interaction counts.
 
-The `GET /community` endpoint supports an optional `period` parameter (`week`, `month`, `year`) that queries the raw interaction log with a timestamp cutoff, enabling rolling time-window rankings rather than static all-time counts. This allows users to distinguish what is trending this week from what has been consistently popular over the past year — a more nuanced and practically useful signal.
+The `GET /community` endpoint supports an optional `period` parameter (`week`, `month`, `year`) that filters the raw interaction log by a rolling time window. This lets users see what is trending right now, rather than just what has been popular since the corpus was ingested.
 
-### 3.3 MCP Server Integration
+### 3.3 MCP Server
 
-The API is also exposed as a Model Context Protocol (MCP) server, enabling direct integration with Claude Desktop. The motivation is practical: AI-assisted research workflows increasingly take place within tools like Claude, where context from previous messages is available. Through the HTTP API alone, workflows are awkward — to summarise a paper, a user must manually copy its abstract and POST it to `/summarise`. Within Claude via MCP, the same operation is natural: Claude retrieves the paper using `arxiv://{arxiv_id}`, passes its content to `summarise_text`, and returns the result in conversation, without any manual data transfer. The MCP server reuses all the same agents, services, and database as the HTTP API with no code duplication and no HTTP calls between layers.
+The API is also available as an MCP server for Claude Desktop. The reason is practical. Most research work now happens inside AI tools like Claude, where conversation context is already available. Using the raw HTTP API is awkward for this: to summarise a paper, you would need to manually copy its abstract and POST it. Through the MCP server, Claude handles this naturally. It retrieves the paper, passes the content to the summariser, and returns the result in conversation. The MCP server shares the same agents, services, and database as the HTTP API with no duplication.
 
 ### 3.4 Security
 
-Security was designed in from the outset rather than added retrospectively. API key authentication (`app/auth.py`) protects all endpoints except `/health`, using `secrets.compare_digest()` for timing-safe comparison — preventing timing attacks where an attacker could infer the correct key character by character from response time variance. Rate limiting via `slowapi` is applied to two categories of endpoint: `POST /summarise` (5 requests/minute) to protect Gemini API credits from exhaustion, and the notes write endpoints (10 requests/minute each) to prevent database flooding with spam content. CORS middleware restricts cross-origin requests to localhost origins with only the required methods and headers whitelisted. TrustedHostMiddleware rejects requests with forged Host headers.
+Security was built in from the start. API key authentication in `app/auth.py` uses `secrets.compare_digest()` for timing-safe comparison, which prevents timing attacks where response time could be used to guess the key. Rate limiting via `slowapi` protects two areas: the summarise endpoint (5 requests/minute) to avoid burning through Gemini credits, and the notes write endpoints (10 requests/minute) to prevent spam. CORS middleware restricts cross-origin access to localhost only. TrustedHostMiddleware rejects requests with forged Host headers.
 
 ---
 
@@ -100,29 +100,29 @@ Security was designed in from the outset rather than added retrospectively. API 
 
 ### 4.1 Automated Tests
 
-The automated test suite comprises 42 tests across 7 files, written with pytest and pytest-asyncio. Tests use an in-memory SQLite database and mock all external dependencies (Gemini API, ChromaDB), ensuring fast, deterministic execution with no API keys required. Coverage spans: all happy paths, authentication failures (401), input validation errors (422), not-found responses (404), external service failures (500), graceful fallback behaviour (search returning results when Gemini is unavailable), and community period filtering. Claude Code generated the initial test suite; the developer reviewed each test, directed additional cases for edge conditions, and ran the full suite after every change. The passing rate has remained at 100% throughout development.
+The test suite has 42 tests across 7 files using pytest and pytest-asyncio. All tests run against an in-memory SQLite database with Gemini and ChromaDB mocked out, so they are fast and require no API keys. Coverage includes happy paths, auth failures (401), validation errors (422), not-found responses (404), external service failures (500), graceful fallback behaviour, and community period filtering. Claude Code wrote the initial suite; the developer reviewed, extended, and ran it after every change. It has stayed at 100% passing throughout.
 
 ### 4.2 Manual Testing
 
-Automated tests verify functional correctness but cannot evaluate output quality. Manual testing covered three areas: API usability (are the endpoint designs intuitive, are error messages informative), LLM output quality (are the classifier, optimiser, and summariser producing genuinely useful results for real queries), and MCP integration (does the conversational research workflow within Claude Desktop function naturally end-to-end). Manual testing directly drove architectural changes — system prompt refinements for both agents, the decision to consolidate a duplicated summariser implementation, and the decision to replace the earlier OpenAlex API dependency with a self-built pipeline, all emerged from observing real behaviour rather than from automated checks.
+Automated tests check that the code runs correctly, but they cannot check whether the output is actually good. Manual testing covered: whether the API endpoints felt intuitive to use, whether the classifier and summariser were producing genuinely useful outputs on real queries, and whether the MCP integration worked naturally inside Claude Desktop. Most architectural decisions came from this kind of testing. System prompt refinements, consolidating a duplicated summariser implementation, and moving away from the OpenAlex API dependency all came from noticing problems in real use, not from test failures.
 
 ---
 
-## 5. Challenges & Lessons Learned
+## 5. Challenges and Lessons Learned
 
-The most significant challenge was architectural design rather than implementation. Decisions about which LLM model to use for each task, what data to persist in which store, how the pipeline stages should compose, and which features to build or cut all required careful trade-off reasoning that AI tools do not surface automatically. For example, the need for rate limiting on write endpoints was identified proactively by the developer — thinking through what could go wrong under real usage — rather than being flagged by any tool. Similarly, the classifier and optimiser were initially two separate LLM calls; consolidating them into a single structured call required understanding the system as a whole and directing the implementation accordingly.
+The hardest part of the project was not writing code, it was making architectural decisions. Choosing which model to use for which task, how the pipeline stages should connect, what to store in which database, which features to build. These decisions involve trade-offs that AI tools do not always surface. Rate limiting is a good example: the need to protect the summarise and notes endpoints was identified by thinking through what could go wrong with real users, not from any automated suggestion. The classifier and optimiser were also initially two separate LLM calls, and consolidating them into one required stepping back and looking at the system as a whole.
 
-A secondary challenge was maintaining code modularity with AI-assisted development. Claude Code produced working code but did not always structure it cleanly — the summariser logic was initially duplicated across two parts of the codebase. Active code review and architectural correction were necessary throughout.
+Maintaining code modularity also required active effort. Claude Code produced working code but not always well-structured code. The summariser was initially implemented in two places. Catching this, understanding why it was a problem, and directing a fix required the developer to understand the codebase deeply rather than just accept what was generated.
 
-The principal lesson is that AI-assisted development shifts the primary challenge from writing code to making good decisions: which problem to solve, how to structure the solution, and where the generated output needs correction. A second lesson is that automated and manual testing serve fundamentally different purposes: the former verifies correctness, the latter verifies quality. For systems involving LLM agents, manual evaluation of actual model outputs is not optional.
+The main lesson from the project is that AI-assisted development moves the challenge from writing code to making good decisions. The code gets written quickly. The hard work is knowing what to build, how to structure it, and where the generated output needs to be corrected. A second lesson is that automated and manual testing do different things. Automated tests verify correctness. Manual tests verify quality. For a system with LLM components, skipping manual evaluation of actual outputs is not an option.
 
 ---
 
-## 6. Limitations & Future Work
+## 6. Limitations and Future Work
 
-The current implementation has four notable limitations. First, the notes system has no moderation: any holder of a valid API key can add or update any note with any content, including irrelevant or misleading material. Second, the `community_interactions` table grows without bound — each paper access appends a new row, and there is no archiving or pruning mechanism. Third, the corpus is static: papers published after the ingestion date are not discoverable without re-running the ingest script. Fourth, the system has no concept of user identity, meaning notes cannot be attributed to their authors and there is no personalisation.
+The notes system currently has no moderation. Any valid API key holder can write any content to any paper, including irrelevant or misleading notes. Related to this, note updates have no ownership concept, so any user can overwrite any note. The `community_interactions` table also grows indefinitely since every paper access is logged as a new row with no pruning. Finally, the corpus is static. Papers published after the ingest date are not searchable without re-running the ingest script.
 
-The most valuable future development would be an AI moderation agent for the notes system. An LLM-based reviewer that evaluates submitted notes for relevance and quality before committing them to the database — and similarly reviews update requests — would make the collaborative layer genuinely trustworthy and useful. This would transform the notes system from an open write surface into a curated, high-signal annotation layer. Beyond this, incremental corpus updates (a scheduled ingest of new arXiv papers), interaction log archiving, and a cross-encoder re-ranking stage applied to the top BGE results (for higher precision retrieval) are the most impactful improvements identified.
+The most useful future addition would be an AI moderation agent for notes. An LLM reviewer that checks a note for relevance and quality before it is saved, and applies the same check to updates, would make the collaborative layer genuinely trustworthy. This is the natural next step for the platform. Beyond that, incremental corpus updates on a schedule, interaction log archiving, and a cross-encoder re-ranking step on top of the BGE results would all meaningfully improve the system.
 
 ---
 
@@ -132,20 +132,24 @@ The most valuable future development would be an AI moderation agent for the not
 
 | Tool | Provider | Purpose |
 |---|---|---|
-| Claude Code | Anthropic | Architecture design, planning, implementation, testing, code review, report analysis |
-| Google Gemini (gemini.google.com) | Google DeepMind | Technology research, framework comparison, trade-off analysis |
+| Claude Code | Anthropic | Architecture design, planning, implementation, testing, code review, requirements analysis |
+| Google Gemini (gemini.google.com) | Google DeepMind | Technology research, comparing frameworks and tools, understanding trade-offs |
 
 ### 7.2 How AI Was Used
 
-Claude Code was the primary tool throughout the project and was used at three distinct levels. At the implementation level, it generated code for agents, services, routers, schemas, and tests — all of which was reviewed, understood, and where necessary corrected by the developer before being accepted. At the planning level, extended conversations were used to design the system architecture before writing code: the structure of the 3-agent pipeline, the ChromaDB vs FAISS decision, the community interaction data model, and the MCP integration strategy were all worked through collaboratively. A `CLAUDE.md` context file was maintained in the project root to give Claude persistent awareness of the stack, conventions, and current state across sessions. At the analytical level, Claude Code was used to review the coursework requirements against the project state — identifying gaps, assessing scope, and ensuring deliverables were complete.
+Claude Code was used at three levels throughout the project.
 
-Google Gemini was used for technology research and comparative analysis: evaluating FAISS against ChromaDB, understanding the BGE embedding model and its retrieval conventions, comparing FastAPI against Flask and Django, and identifying appropriate rate limiting approaches for FastAPI. This research directly informed the stack decisions described in Section 2.
+At the implementation level, it generated code for agents, services, routers, schemas, and tests. All output was reviewed, understood, and corrected where needed before being accepted. At the planning level, extended conversations shaped the system design before any code was written. The three-stage pipeline structure, the ChromaDB vs FAISS decision, the community interaction data model, and the MCP integration strategy were all worked through in conversation. A `CLAUDE.md` file was maintained in the project root to give Claude persistent context about the stack, conventions, and current state across sessions. At the analytical level, Claude Code was used to review the coursework requirements against the project, find gaps, and check that the work stayed within scope.
 
-### 7.3 Reflective Analysis
+Google Gemini was used separately for researching technology choices before making them: comparing FAISS and ChromaDB, understanding the BGE model and its retrieval conventions, and comparing FastAPI against Flask and Django. This informed the decisions in Section 2.
 
-The use of AI in this project was not limited to writing or debugging code. The most valuable applications were architectural: using Claude to think through design alternatives, evaluate trade-offs, and identify consequences of choices before implementing them. For example, the decision to combine the classifier and optimiser into a single LLM call emerged from a conversation about latency and API cost rather than from writing code. The decision to build a self-contained pipeline rather than rely on OpenAlex was similarly reached through structured discussion about the long-term limitations of external API dependency. Claude Code was also used to review the coursework brief thoroughly, map its requirements onto the project, and identify what remained outstanding — effectively acting as a critical reviewer of the work in progress.
+### 7.3 Reflection
 
-The conversation logs attached as Appendix A are representative examples of this usage: one demonstrates a coding session, the other a technology research and comparison session. They illustrate that AI was used as a thinking partner and research assistant rather than solely as a code generator — consistent with the high-level GenAI usage described in the 80–89 and 90–100 grade bands.
+The most valuable use of AI in this project was not generating code. It was using Claude as a thinking partner during architectural decisions: working through alternatives, understanding trade-offs, and thinking about consequences before writing anything. The decision to combine the classifier and optimiser into a single LLM call came from a conversation about latency, not from implementation. The decision to build a self-contained pipeline rather than rely on OpenAlex came from discussing the long-term costs of external API dependency.
+
+Claude Code was also used to analyse the coursework brief in detail, map requirements onto the project, and identify what was missing. This kind of critical review of work in progress was as useful as the coding assistance.
+
+The conversation logs in Appendix A illustrate this. They show AI being used as a research and design tool, not just a code generator.
 
 ---
 
@@ -155,28 +159,28 @@ arXiv (2025). *arXiv Bulk Data Access*. https://arxiv.org/help/bulk_data
 
 Google DeepMind (2025). *Gemini API Documentation*. https://ai.google.dev
 
-Muennighoff, N., Tazi, N., Magne, L., & Reimers, N. (2023). MTEB: Massive Text Embedding Benchmark. *EACL 2023*. https://arxiv.org/abs/2210.07316
+Muennighoff, N., Tazi, N., Magne, L. and Reimers, N. (2023). MTEB: Massive Text Embedding Benchmark. *EACL 2023*. https://arxiv.org/abs/2210.07316
 
-Reimers, N., & Gurevych, I. (2019). Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks. *EMNLP 2019*. https://arxiv.org/abs/1908.10084
+Reimers, N. and Gurevych, I. (2019). Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks. *EMNLP 2019*. https://arxiv.org/abs/1908.10084
 
 Slowapi (2024). *Rate Limiting for Starlette and FastAPI*. https://github.com/laurentS/slowapi
 
 SQLAlchemy (2024). *SQLAlchemy Documentation*. https://docs.sqlalchemy.org
 
-Tiangolo, S. (2019–2025). *FastAPI Documentation*. https://fastapi.tiangolo.com
+Tiangolo, S. (2019-2025). *FastAPI Documentation*. https://fastapi.tiangolo.com
 
 Trychroma (2024). *ChromaDB: The Open-Source Embedding Database*. https://www.trychroma.com
 
 van Strien, D. (2024). *arxiv-cs-papers-classified*. HuggingFace Datasets. https://huggingface.co/datasets/davanstrien/arxiv-cs-papers-classified
 
-Xiao, S. et al. (2023). *C-Pack: Packaged Resources To Advance General Chinese Embedding*. arXiv. https://arxiv.org/abs/2309.07597 [BGE model paper]
+Xiao, S. et al. (2023). *C-Pack: Packaged Resources To Advance General Chinese Embedding*. arXiv. https://arxiv.org/abs/2309.07597
 
 ---
 
-## Appendix A — Generative AI Conversation Logs
+## Appendix A: Generative AI Conversation Logs
 
-The following exported conversation logs are attached as supplementary material in accordance with the GenAI declaration requirements of this assessment.
+The following conversation logs are attached as supplementary material per the GenAI declaration requirements.
 
-**Log 1:** `chat_claude_code.txt` — Claude Code session covering coding, architecture design, and planning decisions.
+**Log 1:** `chat_claude_code.txt` — Claude Code session covering architecture design, planning, and implementation.
 
-**Log 2:** `chat_gemini_Research.txt` — Google Gemini session covering technology research and framework comparison (ChromaDB vs FAISS, embedding model selection, stack trade-offs).
+**Log 2:** `chat_gemini_Research.txt` — Gemini session covering technology research and comparison (ChromaDB vs FAISS, embedding model selection, stack trade-offs).
