@@ -108,7 +108,7 @@ Two-table design:
 - `community_interactions` — one timestamped row per event (raw log, enables period filtering)
 - `community_papers` — aggregated count + last_interacted_at (for all-time ranking)
 
-Triggered by: `GET /papers/{id}`, `POST /summarise` (with arxiv_id), `GET /papers/{id}/related`, `arxiv://{id}` MCP resource.
+Triggered by: `GET /papers/{id}`, `POST /summarise` (with arxiv_id), `GET /papers/{id}/related`, `arxiv://{id}` MCP resource, `summarise_text` MCP tool (with arxiv_id), `find_related_papers` MCP tool.
 
 `GET /community` supports optional `period=week|month|year` — queries the raw interactions log with a timestamp cutoff for rolling window rankings.
 

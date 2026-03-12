@@ -130,7 +130,7 @@ Restart Claude Desktop. The tools will appear in the tools menu.
 |---|---|
 | `search_papers` | Agentic classify + optimise + BGE vector search |
 | `summarise_text` | Gemini-powered summarisation. Optional `arxiv_id` tracks community interaction |
-| `find_related_papers` | BGE vector similarity search for related papers |
+| `find_related_papers` | BGE vector similarity search for related papers. Tracks community interaction |
 | `get_community_papers` | List trending papers ranked by interaction count |
 | `get_paper_notes` | Retrieve all public notes for a paper |
 
