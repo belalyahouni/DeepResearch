@@ -4,6 +4,13 @@ An agentic research assistant API for discovering and exploring AI/ML academic p
 
 Built for COMP3011 coursework (University of Leeds).
 
+## Live Deployment
+
+**API:** https://deepresearch-production-a957.up.railway.app
+**Swagger UI:** https://deepresearch-production-a957.up.railway.app/docs
+
+> The deployed instance runs a 500-paper seed corpus. The full ~521k paper corpus runs locally.
+
 ## Tech Stack
 
 | Component | Choice |
