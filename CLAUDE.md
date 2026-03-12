@@ -73,7 +73,7 @@ The project exposes an MCP (Model Context Protocol) server for use with Claude D
 
 ```bash
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt      # Full local dev install (API + ingest + MCP + tests)
 alembic upgrade head
 python scripts/ingest_arxiv.py           # Ingest full arXiv AI/ML corpus (~521k papers, ~1hr on MPS)
 python scripts/ingest_arxiv.py --limit N # Ingest N papers (for testing)
@@ -124,6 +124,8 @@ Triggered by: `GET /papers/{id}`, `POST /summarise` (with arxiv_id), `GET /paper
 ```
 GEMINI_API_KEY=
 API_KEY=
+ALLOWED_HOSTS=        # comma-separated, default: localhost,127.0.0.1 — set to * on Railway
+ALLOWED_ORIGINS=      # comma-separated, default: http://localhost:8000 — set to * on Railway
 ```
 
 ## Coding Conventions
@@ -148,48 +150,60 @@ API_KEY=
 ## Security
 
 - **API key auth** — `app/auth.py`, `X-API-Key` header, timing-safe comparison via `secrets.compare_digest`
-- **CORS middleware** — restricts origins to `localhost:8000`, whitelists only used methods and headers (`GET`, `POST`, `PATCH`, `DELETE`)
-- **Trusted host middleware** — rejects requests with forged `Host` headers
+- **CORS middleware** — origins configurable via `ALLOWED_ORIGINS` env var (default: `localhost:8000`), whitelists only used methods and headers (`GET`, `POST`, `PATCH`, `DELETE`)
+- **Trusted host middleware** — rejects requests with forged `Host` headers; configurable via `ALLOWED_HOSTS` env var (default: `localhost,127.0.0.1`)
 - **Rate limiting** — `slowapi` per-IP limits on expensive/write endpoints: `POST /summarise` (5/min), `POST /notes` and `PATCH /notes` (10/min each)
 - **`/health` excluded** from auth (standard practice for monitoring)
-- See `AUTHENTICATION.md` for full details
+- See `app/auth.py` for implementation details
 
 ## Project Files
 
 | File | Purpose |
 |---|---|
-| `technical_report.md` | Draft technical report (convert to PDF for submission) |
-| `report_notes.md` | Comprehensive source notes for the report — all decisions, justifications, context |
 | `docs/API_Swagger_UI.pdf` | Exported Swagger API documentation PDF |
 | `docs/openapi.json` | OpenAPI spec |
-| `AUTHENTICATION.md` | Auth and security details |
 | `mcp_server.py` | MCP server entry point |
 | `scripts/ingest_arxiv.py` | One-time corpus ingest script |
+| `scripts/build_report.py` | Converts technical_report.md to .docx |
+| `requirements.txt` | Runtime dependencies (deployed to Railway) |
+| `requirements-dev.txt` | Full local dev dependencies (adds datasets, mcp, pytest) |
+| `Dockerfile` | Railway deployment — forces CPU-only torch to stay under 4GB image limit |
+| `railway.json` | Railway config — sets DOCKERFILE builder and healthcheck path |
+| `chat_claude_code.txt` | Claude Code conversation log (GenAI declaration appendix) |
+| `chat_gemini_research.txt` | Gemini conversation log (GenAI declaration appendix) |
+
+## Deployment
+
+- **Platform:** Railway (https://railway.app)
+- **Live URL:** https://deepresearch-production-a957.up.railway.app
+- **Swagger UI:** https://deepresearch-production-a957.up.railway.app/docs
+- **Branch:** main
+- **Seed corpus:** 500 papers committed to repo (`deepresearch.db` + `chroma_db/`) for the live demo
+- **Full corpus:** ~521k papers, runs locally only
+- **Env vars on Railway:** `GEMINI_API_KEY`, `API_KEY`, `ALLOWED_HOSTS=*`, `ALLOWED_ORIGINS=*`
 
 ## Submission Status
 
 ### Code & API
-- [x] README.md — project overview, setup, endpoints, tests
+- [x] README.md — project overview, setup, endpoints, tests, live URL
 - [x] Swagger polish — descriptions, parameter docs, error codes on all endpoints
 - [x] Export Swagger to PDF — `docs/openapi.json` + `docs/API_Swagger_UI.pdf`
 - [x] CRUD — `PaperNote` (full CRUD) + `CommunityPaper` (create/read/update via interaction tracking)
-- [x] Full corpus ingest — ~521k papers in SQLite + ChromaDB
+- [x] Full corpus ingest — ~521k papers in SQLite + ChromaDB (local)
 - [x] Community period filtering — `period=week|month|year` on `GET /community`
+- [x] Live deployment — Railway, https://deepresearch-production-a957.up.railway.app
+- [x] MCP server — `mcp_server.py`, Claude Desktop integration
 
 ### Written Deliverables
-- [x] **Technical report** — `technical_report.md` (convert to PDF, attach conversation logs as appendix)
-- [x] **GenAI conversation logs** — `chat_claude_code.txt` + `chat_gemini_Research.txt` (attach as appendix)
+- [x] **GenAI conversation logs** — `chat_claude_code.txt` + `chat_gemini_research.txt` (attach as appendix)
+- [ ] **Technical report PDF** — submit via Minerva (with GenAI declaration + conversation logs appendix)
 - [ ] **Presentation slides** — https://docs.google.com/presentation/d/1B8lSFLUzY_b4ehkRaAyDCXZhu-i7uHN_1G08rRB3m0s/edit?usp=share_link
 
 ### Submission Checklist (pass/fail gates)
 - [x] Public GitHub repo with visible commit history
 - [x] README.md present
 - [x] API documentation exported as PDF (in repo at `docs/API_Swagger_UI.pdf`)
-- [ ] Technical report PDF submitted via Minerva (with GenAI declaration + conversation logs appendix)
 - [x] Code runs locally (`uvicorn app.main:app --reload`)
+- [x] Code deployed live (Railway)
 - [x] All tests pass (`pytest tests/ -v`)
-
-### What NOT to Build
-- Docker, deployment
-- Citation graph, user accounts, per-user saved papers
-- Frontend (not required for submission)
+- [ ] Technical report PDF submitted via Minerva

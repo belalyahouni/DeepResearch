@@ -50,8 +50,8 @@ cd DeepResearch
 python -m venv venv
 source venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (includes datasets, mcp, pytest for local dev)
+pip install -r requirements-dev.txt
 
 # Configure environment variables
 cp .env.example .env
@@ -158,6 +158,7 @@ This opens the MCP Inspector — a web UI for calling tools and reading resource
 
 ## API Documentation
 
-- Interactive Swagger UI: `http://localhost:8000/docs`
+- Live Swagger UI: https://deepresearch-production-a957.up.railway.app/docs
+- Local Swagger UI: `http://localhost:8000/docs`
 - OpenAPI spec: [`docs/openapi.json`](docs/openapi.json)
 - Exported PDF: [`docs/API_Swagger_UI.pdf`](docs/API_Swagger_UI.pdf)
